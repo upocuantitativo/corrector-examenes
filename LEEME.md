@@ -51,6 +51,21 @@ Para que detecte sola la respuesta marcada en la foto:
 > Funciona mejor con la foto recta y bien iluminada. Lo que no detecte bien,
 > lo arreglas en 1 toque.
 
+### Exámenes de 2 páginas
+
+Si el examen reparte las preguntas en dos hojas (p. ej. **1–4** en la página 1
+y **5–10** en la página 2), en el apartado 2 elige **«2 páginas»**. Aparece un
+selector **Pág. 1 / Pág. 2**:
+
+1. Selecciona **Pág. 1**, calíbrala una vez (12 letras) y luego, por cada examen,
+   foto de la página 1 → 2 referencias → Detectar.
+2. Selecciona **Pág. 2**, calíbrala una vez (18 letras) y, por cada examen,
+   foto de la página 2 → 2 referencias → Detectar.
+3. El cuadro de puntuación **suma las dos páginas** en una sola nota.
+
+El marcado a mano (apartado 3) tiene siempre las 10 preguntas, da igual cuántas
+páginas tenga el examen.
+
 ---
 
 ## 📲 Instalarla como app (icono en el móvil)
