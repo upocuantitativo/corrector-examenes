@@ -366,9 +366,10 @@ function mappedPoints(){
 }
 
 /* ---------- Calibración: tocar 30 letras ---------- */
+function focusStage(){ try{ $('#stage').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){ window.scrollTo(0,0); } }
 $('#btnCal').onclick = ()=>{
-  if(!imgReady){ alert('Primero toma una foto bien encuadrada del examen en blanco o resuelto.'); return; }
-  mode='calibrate'; calBuf=[]; setHint(calPrompt()); drawOverlay();
+  if(!imgReady){ alert('Antes de calibrar necesitas una foto.\n\n1) Sube al apartado 2.\n2) Pulsa «📷 Tomar / elegir foto» y fotografía el examen bien recto.\n3) Vuelve aquí y pulsa «Calibrar este modelo».'); focusStage(); return; }
+  mode='calibrate'; calBuf=[]; setHint(calPrompt()); drawOverlay(); focusStage();
 };
 function calPrompt(){
   const i=calBuf.length; if(i>=30) return 'Listo. Pulsa «Detectar».';
@@ -395,9 +396,9 @@ function refreshCalStatus(){
 
 /* ---------- Referencias (2 taps) para reubicar la plantilla ---------- */
 $('#btnAnchors').onclick = ()=>{
-  if(!calib[model]){ alert('Calibra primero este modelo.'); return; }
-  if(!imgReady){ alert('Toma una foto primero.'); return; }
-  mode='anchors'; anchors=[]; setHint('Referencia 1/2: toca la letra «a)» de la pregunta 1'); drawOverlay();
+  if(!calib[model]){ alert('Calibra primero este modelo (apartado 4).'); return; }
+  if(!imgReady){ alert('Toma una foto del examen primero (apartado 2).'); focusStage(); return; }
+  mode='anchors'; anchors=[]; setHint('Referencia 1/2: toca la letra «a)» de la pregunta 1'); drawOverlay(); focusStage();
 };
 function onAnchorTap(p){
   anchors.push(p);
