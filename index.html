@@ -67,6 +67,9 @@
   .hint{position:absolute; left:8px; right:8px; top:8px; background:rgba(0,0,0,.7); border-radius:10px;
     padding:8px 10px; font-size:14px; text-align:center; pointer-events:none;}
   .badge{font-size:11px; padding:2px 6px; border-radius:6px; background:#0c1016; border:1px solid var(--linea); color:var(--txt2);}
+  .examsel{flex:1; min-width:0; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:10px; padding:11px 12px; font-size:15px;}
+  .pill{max-width:48vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .keybanner{background:#3a2f00; border:1px solid var(--duda); color:#ffe082; border-radius:10px; padding:9px 11px; font-size:13px; margin-bottom:10px; display:none;}
 </style>
 </head>
 <body>
@@ -76,20 +79,30 @@
 </header>
 
 <main>
-  <!-- Selección de modelo y plantilla de soluciones -->
+  <!-- Gestor de exámenes y soluciones -->
   <div class="card">
-    <h2>1 · Modelo y soluciones</h2>
-    <div class="seg" id="modelSeg" style="margin-bottom:10px">
-      <button data-m="1" class="on">Modelo 1 (Duración subrayada)</button>
-      <button data-m="2">Modelo 2 (sin subrayar)</button>
+    <h2>1 · Examen</h2>
+    <div class="row">
+      <select id="examSel" class="examsel"></select>
+      <button id="btnNewExam">➕ Nuevo</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="btnRenameExam" class="ghost">✏️ Renombrar</button>
+      <button id="btnDelExam" class="ghost">🗑️ Borrar</button>
+    </div>
+
+    <h2 style="margin-top:14px">Soluciones correctas</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="btnKeyFromPhoto" class="sec">📷 Definir soluciones desde un examen corregido</button>
     </div>
     <div id="keyGrid"></div>
-    <p class="muted" style="margin:8px 0 0">Toca una letra para editar la solución correcta de cada pregunta. Se guarda automáticamente.</p>
+    <p class="muted" style="margin:8px 0 0">Toca una letra para fijar/editar la solución de cada pregunta. Se guarda con el examen seleccionado.</p>
   </div>
 
   <!-- Captura -->
   <div class="card">
     <h2>2 · Examen del alumno</h2>
+    <div class="keybanner" id="keyBanner">📝 Modo «definir soluciones» activo: lo que detectes o toques se guardará como SOLUCIONES de este examen, no como respuestas del alumno. <b id="keyBannerCancel" style="cursor:pointer; text-decoration:underline">Cancelar</b></div>
     <div class="row">
       <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none">
       <button id="btnFoto">📷 Tomar / elegir foto</button>
@@ -155,16 +168,16 @@
   </div>
 
   <!-- Calibración -->
-  <div class="card">
+  <div class="card" id="card-cal">
     <h2>4 · Calibración (detección automática)</h2>
-    <p class="muted" id="calStatus">Sin calibrar para este modelo.</p>
+    <p class="muted" id="calStatus">Sin calibrar para este examen.</p>
     <div class="row" style="margin-top:8px">
-      <button id="btnCal" class="sec">🎯 Calibrar este modelo</button>
+      <button id="btnCal" class="sec">🎯 Calibrar este examen</button>
       <button id="btnCalDel" class="ghost">Borrar calibración</button>
     </div>
     <p class="muted" style="margin-top:8px">
-      Calibrar = enseñar a la app dónde está cada letra. Hazlo <b>una sola vez por modelo</b> sobre una foto bien encuadrada:
-      tocas las 30 letras (a,b,c de cada pregunta). Después, en cada examen solo marcas 2 referencias y detecta solo.
+      Calibrar = enseñar a la app dónde está cada letra. Hazlo <b>una sola vez por examen</b> (y por página) sobre una foto bien encuadrada:
+      tocas las letras (a,b,c de cada pregunta). Después, en cada examen solo marcas 2 referencias y detecta solo.
     </p>
   </div>
 
@@ -199,59 +212,87 @@ const NQ = 10, OPTS = ['a','b','c'];
 const POINTS_OK = 0.3, POINTS_BAD = -0.1, MAX_POINTS = NQ * POINTS_OK; // 3,00
 const LS = window.localStorage;
 
-// --- Soluciones por defecto facilitadas por el profesor ---
+// --- Soluciones precargadas (modelos 1 y 2 del profesor) ---
 const DEFAULT_KEYS = {
   1: ['a','a','b','a','a','a','c','b','a','a'],
   2: ['b','a','a','c','b','c','a','c','b','b'],
 };
 
-// --- Estado ---
-let model = 1;
-let keys = loadKeys();
-let answers = newAnswers();           // respuesta del alumno por pregunta: 'a'|'b'|'c'|null|'doubt'
-let calib = {};                       // calibración: calib[modelo][pagina] = {rel:[{t,s}...], r}
-let pageMode = +(LS.getItem('pageMode')||1); // 1 = todo en una página; 2 = examen en dos páginas
+// --- Estado de sesión (no se guarda) ---
+let answers = newAnswers();           // respuesta del alumno: 'a'|'b'|'c'|null|'doubt'
 let curPage = 1;                      // página que se está fotografiando (1 ó 2)
 let photos = {};                      // foto por página: {1: dataURL, 2: dataURL}
-let anchorsByPage = {};               // referencias por página: {1:[..], 2:[..]}
-let anchors = null;                   // [{x,y},{x,y}] referencias de la página ACTUAL (coords imagen)
+let anchorsByPage = {};               // referencias por página
+let anchors = null;                   // referencias de la página ACTUAL (coords imagen)
 let imgReady = false;
 let mode = 'idle';                    // 'idle'|'calibrate'|'anchors'
 let calBuf = [];                      // puntos durante calibración
 let liveStream = null;
+let keyMode = false;                  // true → detectar/tocar escribe en SOLUCIONES, no en respuestas
 
 const $ = s => document.querySelector(s);
 const fmt = n => n.toFixed(2).replace('.', ',');
-
-/* ---------- Persistencia ---------- */
-function loadKeys(){
-  try{ const s = JSON.parse(LS.getItem('keys')); if(s && s[1] && s[2]) return s; }catch(e){}
-  return JSON.parse(JSON.stringify(DEFAULT_KEYS));
-}
-function saveKeys(){ LS.setItem('keys', JSON.stringify(keys)); }
-function loadCalib(){
-  try{ calib = JSON.parse(LS.getItem('calib'))||{}; }catch(e){ calib={}; }
-  // migración formato antiguo: calib[modelo]={rel,r}  →  calib[modelo]={1:{rel,r}}
-  for(const m in calib){ if(calib[m] && calib[m].rel){ calib[m] = {1: calib[m]}; } }
-}
-function saveCalib(){ LS.setItem('calib', JSON.stringify(calib)); }
-
 function newAnswers(){ return new Array(NQ).fill(null); }
+function uid(){ return 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+/* ============================================================
+   Biblioteca de exámenes (persistida en localStorage 'examsDB')
+   exam = { id, name, nq, keys[], pageMode, calib:{pag:{rel,r}}, masterPhotos:{pag:dataURL} }
+   DB   = { exams:{id:exam}, order:[id...], curId }
+   ============================================================ */
+let DB = loadDB();
+
+function blankExam(name){
+  return { id:uid(), name:name||'Examen', nq:NQ, keys:new Array(NQ).fill('a'),
+           pageMode:1, calib:{}, masterPhotos:{} };
+}
+function loadDB(){
+  try{ const d=JSON.parse(LS.getItem('examsDB')); if(d && d.exams && d.order && d.order.length) return d; }catch(e){}
+  // Primera vez: construir Modelo 1 y 2 desde defaults + datos antiguos si los hubiera
+  let ok=null, oc={}, opm=1;
+  try{ ok=JSON.parse(LS.getItem('keys')); }catch(e){}
+  try{ oc=JSON.parse(LS.getItem('calib'))||{}; }catch(e){}
+  for(const m in oc){ if(oc[m] && oc[m].rel) oc[m]={1:oc[m]}; }   // migra calib viejo
+  opm=+(LS.getItem('pageMode')||1);
+  const K=(ok && ok[1] && ok[2])? ok : DEFAULT_KEYS;
+  const m1=blankExam('Modelo 1 (Duración subrayada)'); m1.keys=K[1].slice(); m1.pageMode=opm; if(oc[1])m1.calib=oc[1];
+  const m2=blankExam('Modelo 2 (Duración sin subrayar)'); m2.keys=K[2].slice(); m2.pageMode=opm; if(oc[2])m2.calib=oc[2];
+  const db={ exams:{}, order:[m1.id,m2.id], curId:m1.id };
+  db.exams[m1.id]=m1; db.exams[m2.id]=m2;
+  return db;
+}
+function saveDB(){
+  try{ LS.setItem('examsDB', JSON.stringify(DB)); }
+  catch(e){
+    // sin espacio: reintenta sin las fotos del examen corregido
+    try{ const slim=JSON.parse(JSON.stringify(DB));
+      for(const id in slim.exams) slim.exams[id].masterPhotos={};
+      LS.setItem('examsDB', JSON.stringify(slim)); DB=slim;
+    }catch(e2){ console.warn('No se pudo guardar:', e2); }
+  }
+}
+function EX(){ return DB.exams[DB.curId]; }
 
 /* ---------- Páginas ---------- */
-// Qué preguntas (índice 0-based) hay en cada página
 function pageQuestions(page){
-  if(pageMode===1) return Array.from({length:NQ},(_,i)=>i);
+  if(EX().pageMode===1) return Array.from({length:NQ},(_,i)=>i);
   return page===1 ? [0,1,2,3] : [4,5,6,7,8,9];
 }
-function pageCal(page){ return calib[model] && calib[model][page]; }
+function pageCal(page){ const c=EX().calib; return c && c[page]; }
 
-/* ---------- UI: modelo y soluciones ---------- */
-function setModel(m){
-  model = m; answers = newAnswers(); anchors = null;
-  $('#modelPill').textContent = 'Modelo ' + m;
-  document.querySelectorAll('#modelSeg button').forEach(b=>b.classList.toggle('on', +b.dataset.m===m));
-  renderKeys(); renderResults(); refreshCalStatus(); drawOverlay();
+/* ---------- UI: examen seleccionado y soluciones ---------- */
+function setExam(id){
+  if(!DB.exams[id]) return;
+  DB.curId=id; saveDB();
+  answers=newAnswers(); anchors=null; anchorsByPage={}; photos={}; imgReady=false; mode='idle';
+  keyMode=false; $('#keyBanner').style.display='none'; curPage=1;
+  $('#modelPill').textContent = EX().name;
+  syncExamSel();
+  document.querySelectorAll('#pagesSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.p===EX().pageMode));
+  $('#pageSeg').style.display = EX().pageMode===2 ? 'flex':'none'; syncPageSeg();
+  $('#stage').classList.remove('show');
+  renderKeys(); renderResults(); refreshCalStatus();
+  if(ctx) ctx.clearRect(0,0,cv.width,cv.height);
 }
 function renderKeys(){
   const g = $('#keyGrid'); g.innerHTML = '';
@@ -259,18 +300,18 @@ function renderKeys(){
   let html = '<thead><tr><th>Pr.</th><th>Solución correcta</th></tr></thead><tbody>';
   for(let i=0;i<NQ;i++){
     html += `<tr><td class="qn">${i+1}</td><td class="keyedit" data-k="${i}">` +
-      OPTS.map(o=>`<span class="opt ${keys[model][i]===o?'sel':''}" data-o="${o}">${o}</span>`).join('') +
+      OPTS.map(o=>`<span class="opt ${EX().keys[i]===o?'sel':''}" data-o="${o}">${o}</span>`).join('') +
       `</td></tr>`;
   }
   html += '</tbody>'; tbl.innerHTML = html; g.appendChild(tbl);
   g.querySelectorAll('.keyedit .opt').forEach(el=>{
-    el.onclick = ()=>{ const i=+el.parentElement.dataset.k; keys[model][i]=el.dataset.o; saveKeys(); renderKeys(); renderResults(); };
+    el.onclick = ()=>{ const i=+el.parentElement.dataset.k; EX().keys[i]=el.dataset.o; saveDB(); renderKeys(); renderResults(); drawOverlay(); };
   });
 }
 
 /* ---------- UI: resultados + algoritmo de corrección ---------- */
 function classify(i){
-  const stu = answers[i], key = keys[model][i];
+  const stu = answers[i], key = EX().keys[i];
   if(stu==='doubt') return 'duda';
   if(stu===null)    return 'blanco';
   return stu===key ? 'ok' : 'mal';
@@ -297,7 +338,7 @@ function renderResults(){
     tr.innerHTML =
       `<td class="qn">${i+1}</td>`+
       `<td>`+OPTS.map(o=>`<span class="opt ${answers[i]===o?'sel':''}" data-i="${i}" data-o="${o}">${o}</span>`).join('')+`</td>`+
-      `<td><span class="opt key">${keys[model][i]}</span></td>`+
+      `<td><span class="opt key">${EX().keys[i]}</span></td>`+
       `<td><span class="state s-${c}">${ICON[c]}</span> <button class="ghost" style="padding:4px 8px" data-more="${i}">⋯</button></td>`;
     tb.appendChild(tr);
   }
@@ -411,9 +452,9 @@ function mappedPoints(page){
 /* ---------- Calibración: tocar las letras de la página actual ---------- */
 function focusStage(){ try{ $('#stage').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){ window.scrollTo(0,0); } }
 function calCount(){ return pageQuestions(curPage).length*3; }   // 30 (1 pág) ó 12 / 18 (pág 1 / 2)
-const pageTag = ()=> pageMode===2 ? ' · pág. '+curPage : '';
+const pageTag = ()=> EX().pageMode===2 ? ' · pág. '+curPage : '';
 $('#btnCal').onclick = ()=>{
-  if(!imgReady){ alert('Antes de calibrar necesitas una foto'+(pageMode===2?' de la página '+curPage:'')+'.\n\n1) Sube al apartado 2.\n2) Pulsa «📷 Tomar / elegir foto» y fotografía el examen bien recto.\n3) Vuelve aquí y pulsa «Calibrar este modelo».'); focusStage(); return; }
+  if(!imgReady){ alert('Antes de calibrar necesitas una foto'+(EX().pageMode===2?' de la página '+curPage:'')+'.\n\n1) Sube al apartado 2.\n2) Pulsa «📷 Tomar / elegir foto» y fotografía el examen bien recto.\n3) Vuelve aquí y pulsa «Calibrar este examen».'); focusStage(); return; }
   mode='calibrate'; calBuf=[]; setHint(calPrompt()); drawOverlay(); focusStage();
 };
 function calPrompt(){
@@ -424,23 +465,22 @@ function calPrompt(){
 function onCalTap(p){
   calBuf.push(p);
   if(calBuf.length>=calCount()){
-    if(!calib[model]) calib[model]={};
-    calib[model][curPage]=pointsFromTaps(calBuf); saveCalib();
-    mode='idle'; setHint('✅ Calibrado: Modelo '+model+pageTag()); refreshCalStatus();
+    EX().calib[curPage]=pointsFromTaps(calBuf); saveDB();
+    mode='idle'; setHint('✅ Calibrado: '+EX().name+pageTag()); refreshCalStatus();
     setTimeout(()=>setHint(''),1800);
   }else setHint(calPrompt());
   drawOverlay();
 }
-$('#btnCalDel').onclick = ()=>{ if(calib[model]){ delete calib[model]; saveCalib(); anchors=null; refreshCalStatus(); drawOverlay(); } };
+$('#btnCalDel').onclick = ()=>{ EX().calib={}; saveDB(); anchors=null; refreshCalStatus(); drawOverlay(); };
 function refreshCalStatus(){
-  const m = calib[model]||{}; let txt;
-  if(pageMode===2){
+  const m = EX().calib||{}, nm=EX().name; let txt;
+  if(EX().pageMode===2){
     const c1=!!m[1], c2=!!m[2];
-    txt = `Modelo ${model}: pág. 1 ${c1?'✅':'⚠️ sin calibrar'} · pág. 2 ${c2?'✅':'⚠️ sin calibrar'}.`;
+    txt = `«${nm}»: pág. 1 ${c1?'✅':'⚠️ sin calibrar'} · pág. 2 ${c2?'✅':'⚠️ sin calibrar'}.`;
     if(c1||c2) txt += ' Elige la página (apartado 2), marca 2 referencias y pulsa «Detectar».';
   } else {
-    txt = m[1] ? '✅ Modelo '+model+' calibrado. Marca 2 referencias en cada examen y pulsa «Detectar».'
-               : '⚠️ Sin calibrar para Modelo '+model+'. Puedes corregir a mano, o calibra para detección automática.';
+    txt = m[1] ? '✅ «'+nm+'» calibrado. Marca 2 referencias en cada examen y pulsa «Detectar».'
+               : '⚠️ «'+nm+'» sin calibrar. Puedes corregir a mano, o calibra para detección automática.';
   }
   $('#calStatus').innerHTML = txt;
   $('#btnAnchors').style.display = pageCal(curPage) ? 'inline-block' : 'none';
@@ -448,7 +488,7 @@ function refreshCalStatus(){
 
 /* ---------- Referencias (2 taps) para reubicar la plantilla ---------- */
 $('#btnAnchors').onclick = ()=>{
-  if(!pageCal(curPage)){ alert('Calibra primero '+(pageMode===2?'la página '+curPage+' de ':'')+'este modelo (apartado 4).'); return; }
+  if(!pageCal(curPage)){ alert('Calibra primero '+(EX().pageMode===2?'la página '+curPage+' de ':'')+'este examen (apartado 4).'); return; }
   if(!imgReady){ alert('Toma una foto del examen primero (apartado 2).'); focusStage(); return; }
   const qs=pageQuestions(curPage);
   mode='anchors'; anchors=[]; setHint('Referencia 1/2: toca la letra «a)» de la pregunta '+(qs[0]+1)); drawOverlay(); focusStage();
@@ -464,7 +504,7 @@ function onAnchorTap(p){
 /* ---------- Detección automática de marcas ---------- */
 $('#btnDetect').onclick = ()=>{
   if(!imgReady){ alert('Toma una foto del examen primero.'); return; }
-  if(!pageCal(curPage)){ alert('Para detectar, calibra '+(pageMode===2?'la página '+curPage+' de ':'')+'este modelo (apartado 4).'); return; }
+  if(!pageCal(curPage)){ alert('Para detectar, calibra '+(EX().pageMode===2?'la página '+curPage+' de ':'')+'este examen (apartado 4).'); return; }
   if(!anchors || anchors.length<2){ $('#btnAnchors').onclick(); return; }
   detect(curPage);
 };
@@ -492,16 +532,25 @@ function detect(page){
   const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
   const cc=c.getContext('2d'); cc.drawImage(img,0,0);
   const data = cc.getImageData(0,0,c.width,c.height).data;
-  const sens = +$('#sens').value, qs=pageQuestions(page);
+  const sens = +$('#sens').value, qs=pageQuestions(page), kMode=keyMode;
   for(let lq=0; lq<qs.length; lq++){
     const q=qs[lq];
     const sc = [0,1,2].map(k=>inkScore(data,c.width,c.height, pts[lq*3+k].x, pts[lq*3+k].y, pts[lq*3+k].r));
     const order=[0,1,2].sort((a,b)=>sc[b]-sc[a]);
     const best=sc[order[0]], second=sc[order[1]];
     const floor=0.14; // por debajo, se considera sin marca apreciable
-    if(best<floor){ answers[q]=null; }                          // en blanco
-    else if(second>=floor && best < second*sens){ answers[q]='doubt'; } // dos marcas similares → duda
-    else { answers[q]=OPTS[order[0]]; }
+    if(kMode){
+      // definir SOLUCIONES: una única respuesta por pregunta (la más marcada)
+      if(best>=floor) EX().keys[q]=OPTS[order[0]];
+    } else {
+      if(best<floor){ answers[q]=null; }                          // en blanco
+      else if(second>=floor && best < second*sens){ answers[q]='doubt'; } // dos marcas similares → duda
+      else { answers[q]=OPTS[order[0]]; }
+    }
+  }
+  if(kMode){
+    EX().masterPhotos[page]=photos[page]||''; keyMode=false; $('#keyBanner').style.display='none'; saveDB();
+    renderKeys(); setHint('✅ Soluciones guardadas. Revísalas en el apartado 1.'); setTimeout(()=>setHint(''),2600);
   }
   renderResults(); drawOverlay();
 }
@@ -521,7 +570,7 @@ function drawOverlay(){
   const pts = mappedPoints(curPage); if(!pts) return;
   const qs = pageQuestions(curPage);
   for(let lq=0; lq<qs.length; lq++){
-    const q=qs[lq], key=keys[model][q], stu=answers[q], cl=classify(q);
+    const q=qs[lq], key=EX().keys[q], stu=answers[q], cl=classify(q);
     // marca verde en la solución correcta
     const kp=pts[lq*3+OPTS.indexOf(key)];
     if(cl==='ok'){ ring(kp,'#1b9e44'); glyph(kp,'✔','#1b9e44'); }
@@ -541,7 +590,7 @@ function glyph(p,ch,col){ const s=Math.max(22,p.r*1.6); ctx.font='bold '+s+'px s
 function syncPageSeg(){ document.querySelectorAll('#pageSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.cp===curPage)); }
 function setPageMode(pm){
   anchorsByPage[curPage]=anchors;                 // guarda referencias de la página que dejamos
-  pageMode=pm; LS.setItem('pageMode',pm); curPage=1; mode='idle'; setHint('');
+  EX().pageMode=pm; saveDB(); curPage=1; mode='idle'; setHint('');
   document.querySelectorAll('#pagesSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.p===pm));
   $('#pageSeg').style.display = pm===2 ? 'flex' : 'none'; syncPageSeg();
   anchors = anchorsByPage[1] || null;
@@ -556,15 +605,55 @@ function setCurPage(p){
 document.querySelectorAll('#pagesSeg button').forEach(b=> b.onclick=()=>setPageMode(+b.dataset.p));
 document.querySelectorAll('#pageSeg button').forEach(b=> b.onclick=()=>setCurPage(+b.dataset.cp));
 
+/* ---------- Gestor de exámenes ---------- */
+function syncExamSel(){
+  const sel=$('#examSel'); sel.innerHTML='';
+  DB.order.forEach(id=>{ const o=document.createElement('option'); o.value=id; o.textContent=DB.exams[id].name; if(id===DB.curId)o.selected=true; sel.appendChild(o); });
+}
+$('#examSel').onchange = e=> setExam(e.target.value);
+$('#btnNewExam').onclick = ()=>{
+  const name=prompt('Nombre del nuevo examen:', 'Examen '+(DB.order.length+1));
+  if(name===null) return;
+  const ex=blankExam(name.trim()||'Examen'); DB.exams[ex.id]=ex; DB.order.push(ex.id); saveDB();
+  setExam(ex.id);
+  if(confirm('Examen «'+ex.name+'» creado.\n\nDefine ahora sus soluciones:\n• Aceptar → te explico cómo hacerlo con una foto del examen corregido.\n• Cancelar → las pondré a mano tocando las letras del apartado 1.')){
+    alert('Para leer las soluciones de una foto:\n1) Calibra este examen (apartado 4) sobre una foto bien encuadrada.\n2) Pulsa «📷 Definir soluciones desde un examen corregido» (apartado 1).');
+    $('#card-cal').scrollIntoView({behavior:'smooth'});
+  }
+};
+$('#btnRenameExam').onclick = ()=>{
+  const n=prompt('Nuevo nombre del examen:', EX().name); if(n===null) return;
+  EX().name=n.trim()||EX().name; saveDB();
+  $('#modelPill').textContent=EX().name; syncExamSel(); refreshCalStatus();
+};
+$('#btnDelExam').onclick = ()=>{
+  if(DB.order.length<=1){ alert('Debe quedar al menos un examen.'); return; }
+  if(!confirm('¿Borrar el examen «'+EX().name+'» con sus soluciones y calibración? No se puede deshacer.')) return;
+  const id=DB.curId; delete DB.exams[id]; DB.order=DB.order.filter(x=>x!==id); DB.curId=DB.order[0]; saveDB();
+  setExam(DB.curId);
+};
+
+/* ---------- Definir soluciones desde una foto del examen corregido ---------- */
+$('#btnKeyFromPhoto').onclick = ()=>{
+  if(!pageCal(curPage)){
+    alert('Para leer las soluciones de una foto, primero calibra este examen (apartado 4)'+(EX().pageMode===2?' en cada página':'')+'.\n\nO defínelas a mano tocando las letras de abajo.');
+    $('#card-cal').scrollIntoView({behavior:'smooth'}); return;
+  }
+  keyMode=true; $('#keyBanner').style.display='block';
+  alert('Modo «definir soluciones» activado.\n\n1) En el apartado 2, haz la foto del examen CORREGIDO'+(EX().pageMode===2?' (página '+curPage+')':'')+'.\n2) Pulsa «📍 Marcar referencias» y «✨ Detectar».\n\nLo detectado se guardará como SOLUCIONES (luego puedes revisarlas).');
+  focusStage();
+};
+$('#keyBannerCancel').onclick = ()=>{ keyMode=false; $('#keyBanner').style.display='none'; };
+
 /* ---------- Reset / arranque ---------- */
 $('#btnReset').onclick = ()=>{
   answers=newAnswers(); anchors=null; anchorsByPage={}; photos={}; mode='idle'; curPage=1;
+  keyMode=false; $('#keyBanner').style.display='none';
   imgReady=false; $('#stage').classList.remove('show'); syncPageSeg(); setHint('');
   renderResults(); refreshCalStatus(); ctx.clearRect(0,0,cv.width,cv.height);
 };
-document.querySelectorAll('#modelSeg button').forEach(b=> b.onclick=()=>setModel(+b.dataset.m));
 
-loadCalib(); setModel(1); setPageMode(pageMode);
+syncExamSel(); setExam(DB.curId);
 
 /* PWA: registrar service worker solo si es posible (https) */
 if('serviceWorker' in navigator && window.isSecureContext){

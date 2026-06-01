@@ -20,6 +20,25 @@ Puedes editarlas tocando las letras del apartado 1.
 
 ---
 
+## 🗂️ Gestionar exámenes (apartado 1)
+
+No estás limitado a los dos modelos precargados. En el apartado 1 puedes:
+
+- **Seleccionar** un examen de la lista desplegable.
+- **➕ Nuevo**: crear un examen nuevo, darle un **nombre** y que quede guardado.
+- **✏️ Renombrar** / **🗑️ Borrar** el examen seleccionado.
+
+Cada examen guarda sus **soluciones**, su **calibración** y si es de **1 ó 2 páginas**.
+
+### Definir las soluciones de un examen
+Dos formas:
+1. **A mano**: toca la letra correcta de cada pregunta en el apartado 1.
+2. **Desde un examen corregido (foto)**: pulsa **«📷 Definir soluciones desde un
+   examen corregido»**. Requiere haber calibrado el examen (apartado 4). Entonces
+   haz la foto del examen bien resuelto, marca 2 referencias y «Detectar»: la app
+   **lee las respuestas marcadas y las guarda como soluciones**. Revísalas después
+   (quedan editables).
+
 ## ▶️ Cómo usarla (rápido)
 
 1. Copia la carpeta `corrector_movil` al móvil (o ábrela como se indica abajo).
