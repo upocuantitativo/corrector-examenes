@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d47a1">
+<title>Corrector de Exámenes</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root{
+    --azul:#0d47a1; --azul2:#1565c0;
+    --ok:#1b9e44; --mal:#d32f2f; --duda:#f9a825; --blanco:#90a4ae;
+    --bg:#0e1116; --card:#171c24; --linea:#2a313c; --txt:#e8eef6; --txt2:#9fb0c3;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 8px) env(safe-area-inset-left);}
+  header{position:sticky; top:0; z-index:20; background:linear-gradient(180deg,var(--azul),var(--azul2));
+    padding:10px 12px; display:flex; align-items:center; gap:10px; box-shadow:0 2px 8px rgba(0,0,0,.4);}
+  header h1{font-size:17px; margin:0; flex:1; font-weight:700;}
+  .pill{background:rgba(255,255,255,.15); border-radius:999px; padding:4px 10px; font-size:13px; font-weight:600;}
+  main{padding:12px; max-width:760px; margin:0 auto;}
+  .card{background:var(--card); border:1px solid var(--linea); border-radius:14px; padding:12px; margin-bottom:12px;}
+  .card h2{font-size:14px; margin:0 0 10px; color:var(--txt2); text-transform:uppercase; letter-spacing:.5px;}
+  .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
+  button{font-family:inherit; cursor:pointer; border:none; border-radius:10px; padding:11px 14px;
+    font-size:15px; font-weight:600; color:#fff; background:var(--azul2);}
+  button:active{transform:scale(.97);}
+  button.sec{background:#2a313c; color:var(--txt);}
+  button.ghost{background:transparent; color:var(--txt2); border:1px solid var(--linea);}
+  button.wide{width:100%;}
+  .seg{display:flex; background:#0c1016; border:1px solid var(--linea); border-radius:10px; overflow:hidden;}
+  .seg button{flex:1; background:transparent; border-radius:0; color:var(--txt2); padding:10px;}
+  .seg button.on{background:var(--azul2); color:#fff;}
+  /* Panel de imagen */
+  #stage{position:relative; width:100%; background:#000; border-radius:12px; overflow:hidden; display:none;}
+  #stage.show{display:block;}
+  #photo{width:100%; display:block;}
+  #overlay{position:absolute; left:0; top:0; width:100%; height:100%; touch-action:none;}
+  #video{width:100%; display:none;}
+  /* Tabla de resultados */
+  table{width:100%; border-collapse:collapse;}
+  td,th{padding:6px 4px; text-align:center;}
+  th{color:var(--txt2); font-size:12px; font-weight:600;}
+  .qn{font-weight:700; width:34px;}
+  .opt{display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; margin:0 2px;
+    border-radius:9px; border:1px solid var(--linea); background:#0c1016; color:var(--txt2); font-weight:700; font-size:15px;}
+  .opt.sel{background:var(--azul2); color:#fff; border-color:var(--azul2);}
+  .opt.key{outline:2px solid var(--ok); outline-offset:1px;}
+  .state{font-size:20px; width:30px;}
+  .s-ok{color:var(--ok);} .s-mal{color:var(--mal);} .s-duda{color:var(--duda);} .s-bl{color:var(--blanco);}
+  /* Resumen */
+  #resumen{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:10px;}
+  .stat{background:#0c1016; border:1px solid var(--linea); border-radius:10px; padding:8px; text-align:center;}
+  .stat b{display:block; font-size:22px;} .stat span{font-size:11px; color:var(--txt2);}
+  .total{background:linear-gradient(135deg,#0d47a1,#1565c0); border:none; border-radius:14px; padding:14px; text-align:center;}
+  .total .pts{font-size:34px; font-weight:800;}
+  .total .nota{font-size:15px; opacity:.95; margin-top:2px;}
+  .muted{color:var(--txt2); font-size:13px; line-height:1.45;}
+  .keyedit{display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap;}
+  input[type=range]{width:100%;}
+  label.small{font-size:12px; color:var(--txt2);}
+  dialog{border:none; border-radius:16px; background:var(--card); color:var(--txt); padding:16px; max-width:320px;}
+  dialog::backdrop{background:rgba(0,0,0,.6);}
+  .hint{position:absolute; left:8px; right:8px; top:8px; background:rgba(0,0,0,.7); border-radius:10px;
+    padding:8px 10px; font-size:14px; text-align:center; pointer-events:none;}
+  .badge{font-size:11px; padding:2px 6px; border-radius:6px; background:#0c1016; border:1px solid var(--linea); color:var(--txt2);}
+</style>
+</head>
+<body>
+<header>
+  <h1>Corrector de Exámenes</h1>
+  <span class="pill" id="modelPill">Modelo 1</span>
+</header>
+
+<main>
+  <!-- Selección de modelo y plantilla de soluciones -->
+  <div class="card">
+    <h2>1 · Modelo y soluciones</h2>
+    <div class="seg" id="modelSeg" style="margin-bottom:10px">
+      <button data-m="1" class="on">Modelo 1 (Duración subrayada)</button>
+      <button data-m="2">Modelo 2 (sin subrayar)</button>
+    </div>
+    <div id="keyGrid"></div>
+    <p class="muted" style="margin:8px 0 0">Toca una letra para editar la solución correcta de cada pregunta. Se guarda automáticamente.</p>
+  </div>
+
+  <!-- Captura -->
+  <div class="card">
+    <h2>2 · Examen del alumno</h2>
+    <div class="row">
+      <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none">
+      <button id="btnFoto">📷 Tomar / elegir foto</button>
+      <button id="btnLive" class="sec" style="display:none">🎥 Cámara en vivo</button>
+      <button id="btnSinFoto" class="ghost">Corregir sin foto</button>
+    </div>
+
+    <div id="stage" style="margin-top:10px">
+      <video id="video" playsinline></video>
+      <img id="photo" alt="">
+      <canvas id="overlay"></canvas>
+      <div class="hint" id="hint" style="display:none"></div>
+    </div>
+
+    <div class="row" id="captureBtns" style="margin-top:8px; display:none">
+      <button id="btnShot" style="display:none">📸 Capturar fotograma</button>
+      <button id="btnDetect" class="sec">✨ Detectar respuestas</button>
+      <button id="btnAnchors" class="ghost">📍 Marcar referencias</button>
+    </div>
+    <div style="margin-top:8px" id="sensWrap" hidden>
+      <label class="small">Sensibilidad de detección: <span id="sensVal">1.6</span></label>
+      <input id="sens" type="range" min="1.1" max="2.6" step="0.05" value="1.6">
+    </div>
+  </div>
+
+  <!-- Resultados -->
+  <div class="card">
+    <h2>3 · Corrección</h2>
+    <div id="resumen">
+      <div class="stat"><b id="nAc" class="s-ok">0</b><span>Aciertos</span></div>
+      <div class="stat"><b id="nFa" class="s-mal">0</b><span>Fallos</span></div>
+      <div class="stat"><b id="nDu" class="s-duda">0</b><span>Dudas</span></div>
+      <div class="stat"><b id="nBl" class="s-bl">0</b><span>En blanco</span></div>
+    </div>
+    <div class="total">
+      <div class="pts" id="puntos">0,00 / 3,00</div>
+      <div class="nota" id="nota">Nota: 0,00 / 10 · —</div>
+      <div style="font-size:12px; opacity:.9; margin-top:4px" id="desglose">+0,3 × acierto · −0,1 × fallo · dudas y blancos no cuentan</div>
+    </div>
+    <table style="margin-top:10px">
+      <thead><tr><th>Pr.</th><th>Respuesta del alumno</th><th>Sol.</th><th></th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button id="btnReset" class="ghost">↺ Empezar examen nuevo</button>
+    </div>
+    <p class="muted" style="margin:10px 0 0">
+      Toca las letras de cada fila para fijar lo que marcó el alumno. Si marcó dos o más, queda en
+      <b style="color:var(--duda)">duda (?)</b> y no suma ni resta. Pulsa la <span class="badge">⋯</span> de una fila para ponerla en duda manualmente.
+    </p>
+  </div>
+
+  <!-- Calibración -->
+  <div class="card">
+    <h2>4 · Calibración (detección automática)</h2>
+    <p class="muted" id="calStatus">Sin calibrar para este modelo.</p>
+    <div class="row" style="margin-top:8px">
+      <button id="btnCal" class="sec">🎯 Calibrar este modelo</button>
+      <button id="btnCalDel" class="ghost">Borrar calibración</button>
+    </div>
+    <p class="muted" style="margin-top:8px">
+      Calibrar = enseñar a la app dónde está cada letra. Hazlo <b>una sola vez por modelo</b> sobre una foto bien encuadrada:
+      tocas las 30 letras (a,b,c de cada pregunta). Después, en cada examen solo marcas 2 referencias y detecta solo.
+    </p>
+  </div>
+
+  <p class="muted" style="text-align:center; margin:18px 0">
+    Corrector tipo test · +0,3 acierto / −0,1 fallo · v1.0
+  </p>
+</main>
+
+<!-- Diálogo selector rápido por fila -->
+<dialog id="dlgRow">
+  <h3 style="margin:0 0 10px">Pregunta <span id="dlgN"></span></h3>
+  <div class="row" style="justify-content:center">
+    <button class="sec dlgopt" data-v="a">a</button>
+    <button class="sec dlgopt" data-v="b">b</button>
+    <button class="sec dlgopt" data-v="c">c</button>
+    <button class="ghost dlgopt" data-v="null">En blanco</button>
+    <button class="ghost dlgopt" data-v="doubt" style="color:var(--duda)">Duda (?)</button>
+  </div>
+  <button class="ghost wide" style="margin-top:10px" onclick="document.getElementById('dlgRow').close()">Cerrar</button>
+</dialog>
+
+<script>
+"use strict";
+/* ============================================================
+   Corrector de exámenes tipo test (PWA)
+   Algoritmo de corrección adaptado del proyecto de escritorio:
+     acierto = +0,3 | fallo = -0,1 | no contestada = 0
+     contestar 2+ opciones = DUDA (excluida del total, símbolo ? amarillo)
+   ============================================================ */
+
+const NQ = 10, OPTS = ['a','b','c'];
+const POINTS_OK = 0.3, POINTS_BAD = -0.1, MAX_POINTS = NQ * POINTS_OK; // 3,00
+const LS = window.localStorage;
+
+// --- Soluciones por defecto facilitadas por el profesor ---
+const DEFAULT_KEYS = {
+  1: ['a','a','b','a','a','a','c','b','a','a'],
+  2: ['b','a','a','c','b','c','a','c','b','b'],
+};
+
+// --- Estado ---
+let model = 1;
+let keys = loadKeys();
+let answers = newAnswers();           // respuesta del alumno por pregunta: 'a'|'b'|'c'|null|'doubt'
+let calib = {};                       // calibración por modelo: {1:[{t,s}*30, r], ...}
+let anchors = null;                   // [{x,y},{x,y}] referencias marcadas en la foto actual (coords imagen)
+let imgReady = false;
+let mode = 'idle';                    // 'idle'|'calibrate'|'anchors'
+let calBuf = [];                      // puntos durante calibración
+let liveStream = null;
+
+const $ = s => document.querySelector(s);
+const fmt = n => n.toFixed(2).replace('.', ',');
+
+/* ---------- Persistencia ---------- */
+function loadKeys(){
+  try{ const s = JSON.parse(LS.getItem('keys')); if(s && s[1] && s[2]) return s; }catch(e){}
+  return JSON.parse(JSON.stringify(DEFAULT_KEYS));
+}
+function saveKeys(){ LS.setItem('keys', JSON.stringify(keys)); }
+function loadCalib(){ try{ calib = JSON.parse(LS.getItem('calib'))||{}; }catch(e){ calib={}; } }
+function saveCalib(){ LS.setItem('calib', JSON.stringify(calib)); }
+
+function newAnswers(){ return new Array(NQ).fill(null); }
+
+/* ---------- UI: modelo y soluciones ---------- */
+function setModel(m){
+  model = m; answers = newAnswers(); anchors = null;
+  $('#modelPill').textContent = 'Modelo ' + m;
+  document.querySelectorAll('#modelSeg button').forEach(b=>b.classList.toggle('on', +b.dataset.m===m));
+  renderKeys(); renderResults(); refreshCalStatus(); drawOverlay();
+}
+function renderKeys(){
+  const g = $('#keyGrid'); g.innerHTML = '';
+  const tbl = document.createElement('table');
+  let html = '<thead><tr><th>Pr.</th><th>Solución correcta</th></tr></thead><tbody>';
+  for(let i=0;i<NQ;i++){
+    html += `<tr><td class="qn">${i+1}</td><td class="keyedit" data-k="${i}">` +
+      OPTS.map(o=>`<span class="opt ${keys[model][i]===o?'sel':''}" data-o="${o}">${o}</span>`).join('') +
+      `</td></tr>`;
+  }
+  html += '</tbody>'; tbl.innerHTML = html; g.appendChild(tbl);
+  g.querySelectorAll('.keyedit .opt').forEach(el=>{
+    el.onclick = ()=>{ const i=+el.parentElement.dataset.k; keys[model][i]=el.dataset.o; saveKeys(); renderKeys(); renderResults(); };
+  });
+}
+
+/* ---------- UI: resultados + algoritmo de corrección ---------- */
+function classify(i){
+  const stu = answers[i], key = keys[model][i];
+  if(stu==='doubt') return 'duda';
+  if(stu===null)    return 'blanco';
+  return stu===key ? 'ok' : 'mal';
+}
+function grade(){
+  let ac=0, fa=0, du=0, bl=0;
+  for(let i=0;i<NQ;i++){ const c=classify(i);
+    if(c==='ok')ac++; else if(c==='mal')fa++; else if(c==='duda')du++; else bl++; }
+  const pts = ac*POINTS_OK + fa*POINTS_BAD;          // dudas y blancos no puntúan
+  return {ac,fa,du,bl, pts, nota: MAX_POINTS>0 ? pts/MAX_POINTS*10 : 0};
+}
+function literal(nota10){
+  if(nota10>=9) return 'Sobresaliente';
+  if(nota10>=7) return 'Notable';
+  if(nota10>=5) return 'Aprobado';
+  return 'Suspenso';
+}
+function renderResults(){
+  const tb = $('#tbody'); tb.innerHTML='';
+  const ICON = {ok:'✔', mal:'✘', duda:'?', blanco:'·'};
+  for(let i=0;i<NQ;i++){
+    const c = classify(i);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="qn">${i+1}</td>`+
+      `<td>`+OPTS.map(o=>`<span class="opt ${answers[i]===o?'sel':''}" data-i="${i}" data-o="${o}">${o}</span>`).join('')+`</td>`+
+      `<td><span class="opt key">${keys[model][i]}</span></td>`+
+      `<td><span class="state s-${c}">${ICON[c]}</span> <button class="ghost" style="padding:4px 8px" data-more="${i}">⋯</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('.opt[data-o]').forEach(el=>{
+    el.onclick=()=>{ const i=+el.dataset.i, o=el.dataset.o;
+      answers[i] = (answers[i]===o)? null : o; renderResults(); drawOverlay(); };
+  });
+  tb.querySelectorAll('[data-more]').forEach(b=> b.onclick=()=>openRowDialog(+b.dataset.more));
+  const g = grade();
+  $('#nAc').textContent=g.ac; $('#nFa').textContent=g.fa; $('#nDu').textContent=g.du; $('#nBl').textContent=g.bl;
+  $('#puntos').textContent = fmt(g.pts)+' / '+fmt(MAX_POINTS);
+  $('#nota').textContent = 'Nota: '+fmt(g.nota)+' / 10 · '+literal(g.nota);
+}
+function openRowDialog(i){
+  $('#dlgN').textContent = i+1;
+  const d = $('#dlgRow'); d.showModal();
+  d.querySelectorAll('.dlgopt').forEach(b=> b.onclick=()=>{
+    const v=b.dataset.v; answers[i] = v==='null'? null : v; d.close(); renderResults(); drawOverlay();
+  });
+}
+
+/* ---------- Imagen / cámara ---------- */
+const img = $('#photo'), cv = $('#overlay'), ctx = cv.getContext('2d');
+function showStage(){ $('#stage').classList.add('show'); $('#captureBtns').style.display='flex'; $('#sensWrap').hidden=false; }
+function fitCanvas(){
+  const w = img.naturalWidth||img.clientWidth, h = img.naturalHeight||img.clientHeight;
+  cv.width = w; cv.height = h;
+  cv.style.width = img.clientWidth+'px'; cv.style.height = img.clientHeight+'px';
+}
+$('#fileInput').onchange = e=>{
+  const f = e.target.files[0]; if(!f) return; stopLive();
+  const url = URL.createObjectURL(f);
+  img.onload = ()=>{ imgReady=true; img.style.display='block'; showStage(); fitCanvas(); anchors=null; mode='idle'; setHint(''); drawOverlay(); URL.revokeObjectURL(url); };
+  img.src = url;
+};
+$('#btnFoto').onclick = ()=> $('#fileInput').click();
+$('#btnSinFoto').onclick = ()=>{ $('#stage').classList.remove('show'); imgReady=false; renderResults(); };
+
+/* Cámara en vivo (solo si contexto seguro) */
+if(window.isSecureContext && navigator.mediaDevices?.getUserMedia){ $('#btnLive').style.display='inline-block'; }
+$('#btnLive').onclick = async ()=>{
+  try{
+    liveStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+    const v=$('#video'); v.srcObject=liveStream; await v.play();
+    v.style.display='block'; img.style.display='none'; showStage(); $('#btnShot').style.display='inline-block';
+  }catch(err){ alert('No se pudo abrir la cámara: '+err.message+'\nUsa «Tomar / elegir foto».'); }
+};
+$('#btnShot').onclick = ()=>{
+  const v=$('#video'); const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+  c.getContext('2d').drawImage(v,0,0); img.src=c.toDataURL('image/jpeg',0.92);
+  img.onload=()=>{ imgReady=true; v.style.display='none'; img.style.display='block'; $('#btnShot').style.display='none'; stopLive(); fitCanvas(); anchors=null; drawOverlay(); };
+};
+function stopLive(){ if(liveStream){ liveStream.getTracks().forEach(t=>t.stop()); liveStream=null; } $('#video').style.display='none'; }
+window.addEventListener('resize', ()=>{ if(imgReady){ fitCanvas(); drawOverlay(); } });
+
+/* ---------- Coordenadas táctiles sobre el canvas ---------- */
+function evtToImg(ev){
+  const r = cv.getBoundingClientRect();
+  const p = ev.touches? ev.touches[0] : ev;
+  const x = (p.clientX - r.left) / r.width  * cv.width;
+  const y = (p.clientY - r.top ) / r.height * cv.height;
+  return {x,y};
+}
+cv.addEventListener('click', ev=>{
+  if(!imgReady) return;
+  const p = evtToImg(ev);
+  if(mode==='calibrate') return onCalTap(p);
+  if(mode==='anchors')   return onAnchorTap(p);
+});
+
+/* ---------- Geometría calibración (relativa a 2 anclas A=Q1a, B=Q10c) ---------- */
+function pointsFromTaps(taps){
+  // taps: 30 puntos en orden Q1a,Q1b,Q1c,Q2a,... ; A=taps[0], B=taps[29]
+  const A=taps[0], B=taps[29];
+  const vx=B.x-A.x, vy=B.y-A.y, L=Math.hypot(vx,vy)||1;
+  const ux=vx/L, uy=vy/L, px=-uy, py=ux;  // u dirección columna, p perpendicular
+  const rel = taps.map(P=>{
+    const dx=P.x-A.x, dy=P.y-A.y;
+    return { t:(dx*ux+dy*uy)/L, s:(dx*px+dy*py)/L };
+  });
+  return { rel, r: 0.022 };  // radio ROI como fracción de L
+}
+function mappedPoints(){
+  // Devuelve 30 posiciones en coords imagen usando anchors[0],[1] y calib del modelo
+  const cal = calib[model]; if(!cal || !anchors) return null;
+  const A=anchors[0], B=anchors[1];
+  const vx=B.x-A.x, vy=B.y-A.y, L=Math.hypot(vx,vy)||1;
+  const ux=vx/L, uy=vy/L, px=-uy, py=ux;
+  return cal.rel.map(rp=>({
+    x: A.x + (rp.t*ux + rp.s*px)*L,
+    y: A.y + (rp.t*uy + rp.s*py)*L,
+    r: cal.r*L
+  }));
+}
+
+/* ---------- Calibración: tocar 30 letras ---------- */
+$('#btnCal').onclick = ()=>{
+  if(!imgReady){ alert('Primero toma una foto bien encuadrada del examen en blanco o resuelto.'); return; }
+  mode='calibrate'; calBuf=[]; setHint(calPrompt()); drawOverlay();
+};
+function calPrompt(){
+  const i=calBuf.length; if(i>=30) return 'Listo. Pulsa «Detectar».';
+  const q=Math.floor(i/3)+1, o=OPTS[i%3];
+  return `Calibrando (${i+1}/30): toca la letra «${o})» de la pregunta ${q}`;
+}
+function onCalTap(p){
+  calBuf.push(p);
+  if(calBuf.length>=30){
+    calib[model]=pointsFromTaps(calBuf); saveCalib();
+    mode='idle'; setHint('✅ Calibración guardada para Modelo '+model); refreshCalStatus();
+    setTimeout(()=>setHint(''),1800);
+  }else setHint(calPrompt());
+  drawOverlay();
+}
+$('#btnCalDel').onclick = ()=>{ if(calib[model]){ delete calib[model]; saveCalib(); refreshCalStatus(); drawOverlay(); } };
+function refreshCalStatus(){
+  const ok = !!calib[model];
+  $('#calStatus').innerHTML = ok
+    ? '✅ Modelo '+model+' calibrado. Marca 2 referencias en cada examen y pulsa «Detectar».'
+    : '⚠️ Sin calibrar para Modelo '+model+'. Puedes corregir a mano, o calibra para detección automática.';
+  $('#btnAnchors').style.display = ok? 'inline-block':'none';
+}
+
+/* ---------- Referencias (2 taps) para reubicar la plantilla ---------- */
+$('#btnAnchors').onclick = ()=>{
+  if(!calib[model]){ alert('Calibra primero este modelo.'); return; }
+  if(!imgReady){ alert('Toma una foto primero.'); return; }
+  mode='anchors'; anchors=[]; setHint('Referencia 1/2: toca la letra «a)» de la pregunta 1'); drawOverlay();
+};
+function onAnchorTap(p){
+  anchors.push(p);
+  if(anchors.length>=2){ mode='idle'; setHint('Referencias listas. Pulsa «Detectar».'); setTimeout(()=>setHint(''),1500); detect(); }
+  else setHint('Referencia 2/2: toca la letra «c)» de la pregunta 10');
+  drawOverlay();
+}
+
+/* ---------- Detección automática de marcas ---------- */
+$('#btnDetect').onclick = ()=>{
+  if(!imgReady){ alert('Toma una foto del examen primero.'); return; }
+  if(!calib[model]){ alert('Para detectar automáticamente, calibra este modelo (apartado 4).'); return; }
+  if(!anchors || anchors.length<2){ $('#btnAnchors').onclick(); return; }
+  detect();
+};
+$('#sens').oninput = e=>{ $('#sensVal').textContent=(+e.target.value).toFixed(2).replace('.',','); if(anchors) detect(); };
+
+function inkScore(buf, w, h, cx, cy, r){
+  // fracción de píxeles oscuros en el disco (cx,cy,r). Umbral relativo a la luminancia local.
+  let sum=0, n=0, vals=[];
+  const x0=Math.max(0,(cx-r)|0), x1=Math.min(w-1,(cx+r)|0), y0=Math.max(0,(cy-r)|0), y1=Math.min(h-1,(cy+r)|0);
+  const r2=r*r;
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const dx=x-cx, dy=y-cy; if(dx*dx+dy*dy>r2) continue;
+    const idx=(y*w+x)*4; const L=0.299*buf[idx]+0.587*buf[idx+1]+0.114*buf[idx+2];
+    vals.push(L); sum+=L; n++;
+  }
+  if(!n) return 0;
+  const mean=sum/n;
+  // umbral = 70% de la media local → cuenta tinta (texto + círculo a mano)
+  const thr=mean*0.72; let dark=0;
+  for(const L of vals) if(L<thr) dark++;
+  return dark/n;
+}
+function detect(){
+  const pts = mappedPoints(); if(!pts) return;
+  const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
+  const cc=c.getContext('2d'); cc.drawImage(img,0,0);
+  const data = cc.getImageData(0,0,c.width,c.height).data;
+  const sens = +$('#sens').value;
+  for(let q=0;q<NQ;q++){
+    const sc = [0,1,2].map(k=>inkScore(data,c.width,c.height, pts[q*3+k].x, pts[q*3+k].y, pts[q*3+k].r));
+    const order=[0,1,2].sort((a,b)=>sc[b]-sc[a]);
+    const best=sc[order[0]], second=sc[order[1]];
+    const floor=0.14; // por debajo, se considera sin marca apreciable
+    if(best<floor){ answers[q]=null; }                          // en blanco
+    else if(second>=floor && best < second*sens){ answers[q]='doubt'; } // dos marcas similares → duda
+    else { answers[q]=OPTS[order[0]]; }
+  }
+  renderResults(); drawOverlay();
+}
+
+/* ---------- Dibujo del overlay (✔/✘/?) ---------- */
+function setHint(t){ const h=$('#hint'); if(t){ h.style.display='block'; h.textContent=t; } else h.style.display='none'; }
+function drawOverlay(){
+  if(!imgReady){ return; }
+  ctx.clearRect(0,0,cv.width,cv.height);
+  // puntos de calibración en curso
+  if(mode==='calibrate'){
+    ctx.fillStyle='#29b6f6';
+    calBuf.forEach((p,i)=>{ dot(p.x,p.y,8,'#29b6f6'); ctx.fillStyle='#fff'; });
+    return;
+  }
+  if(anchors){ anchors.forEach(p=>dot(p.x,p.y,10,'#f9a825')); }
+  const pts = mappedPoints(); if(!pts) return;
+  const COL={ok:'#1b9e44', mal:'#d32f2f', duda:'#f9a825'};
+  for(let q=0;q<NQ;q++){
+    const key=keys[model][q], stu=answers[q], cl=classify(q);
+    // marca verde en la solución correcta
+    const kp=pts[q*3+OPTS.indexOf(key)];
+    if(cl==='ok'){ ring(kp,'#1b9e44'); glyph(kp,'✔','#1b9e44'); }
+    else if(cl==='mal'){
+      ring(kp,'#1b9e44');                                   // dónde estaba lo correcto
+      if(stu && OPTS.includes(stu)){ const sp=pts[q*3+OPTS.indexOf(stu)]; ring(sp,'#d32f2f'); glyph(sp,'✘','#d32f2f'); }
+    }
+    else if(cl==='duda'){ const a=pts[q*3]; glyph({x:a.x-a.r*1.4,y:a.y}, '?', '#f9a825'); }
+  }
+}
+function dot(x,y,r,col){ ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fillStyle=col; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#fff'; ctx.stroke(); }
+function ring(p,col){ ctx.beginPath(); ctx.arc(p.x,p.y,p.r*1.15,0,7); ctx.lineWidth=Math.max(3,p.r*0.18); ctx.strokeStyle=col; ctx.stroke(); }
+function glyph(p,ch,col){ const s=Math.max(22,p.r*1.6); ctx.font='bold '+s+'px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.lineWidth=4; ctx.strokeStyle='#fff'; ctx.strokeText(ch,p.x+p.r*1.7,p.y); ctx.fillStyle=col; ctx.fillText(ch,p.x+p.r*1.7,p.y); }
+
+/* ---------- Reset / arranque ---------- */
+$('#btnReset').onclick = ()=>{ answers=newAnswers(); anchors=null; mode='idle'; setHint(''); renderResults(); drawOverlay(); };
+document.querySelectorAll('#modelSeg button').forEach(b=> b.onclick=()=>setModel(+b.dataset.m));
+
+loadCalib(); setModel(1);
+
+/* PWA: registrar service worker solo si es posible (https) */
+if('serviceWorker' in navigator && window.isSecureContext){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
