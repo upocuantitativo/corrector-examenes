@@ -543,7 +543,7 @@ loadCalib(); setModel(1); setPageMode(pageMode);
 
 /* PWA: registrar service worker solo si es posible (https) */
 if('serviceWorker' in navigator && window.isSecureContext){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).catch(()=>{});
 }
 </script>
 </body>
