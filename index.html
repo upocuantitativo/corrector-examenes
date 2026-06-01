@@ -212,7 +212,9 @@ let answers = newAnswers();           // respuesta del alumno por pregunta: 'a'|
 let calib = {};                       // calibración: calib[modelo][pagina] = {rel:[{t,s}...], r}
 let pageMode = +(LS.getItem('pageMode')||1); // 1 = todo en una página; 2 = examen en dos páginas
 let curPage = 1;                      // página que se está fotografiando (1 ó 2)
-let anchors = null;                   // [{x,y},{x,y}] referencias marcadas en la foto actual (coords imagen)
+let photos = {};                      // foto por página: {1: dataURL, 2: dataURL}
+let anchorsByPage = {};               // referencias por página: {1:[..], 2:[..]}
+let anchors = null;                   // [{x,y},{x,y}] referencias de la página ACTUAL (coords imagen)
 let imgReady = false;
 let mode = 'idle';                    // 'idle'|'calibrate'|'anchors'
 let calBuf = [];                      // puntos durante calibración
@@ -325,11 +327,26 @@ function fitCanvas(){
   cv.width = w; cv.height = h;
   cv.style.width = img.clientWidth+'px'; cv.style.height = img.clientHeight+'px';
 }
+// Carga una nueva foto para la página actual (dataURL, persiste al cambiar de página)
+function setPhoto(src){
+  photos[curPage]=src; anchors=null; anchorsByPage[curPage]=null; mode='idle';
+  showStage(); $('#video').style.display='none'; img.style.display='block';
+  img.onload = ()=>{ imgReady=true; fitCanvas(); setHint(''); drawOverlay(); };
+  img.src = src;
+}
+// Muestra la foto ya guardada de una página (o vacía la zona si no hay)
+function showPagePhoto(p){
+  if(photos[p]){
+    showStage(); $('#video').style.display='none'; img.style.display='block';
+    if(img.getAttribute('src')===photos[p] && img.complete){ imgReady=true; fitCanvas(); drawOverlay(); }
+    else { img.onload=()=>{ imgReady=true; fitCanvas(); drawOverlay(); }; img.src=photos[p]; }
+  } else {
+    imgReady=false; $('#stage').classList.remove('show'); ctx.clearRect(0,0,cv.width,cv.height);
+  }
+}
 $('#fileInput').onchange = e=>{
   const f = e.target.files[0]; if(!f) return; stopLive();
-  const url = URL.createObjectURL(f);
-  img.onload = ()=>{ imgReady=true; img.style.display='block'; showStage(); fitCanvas(); anchors=null; mode='idle'; setHint(''); drawOverlay(); URL.revokeObjectURL(url); };
-  img.src = url;
+  const fr = new FileReader(); fr.onload = ()=> setPhoto(fr.result); fr.readAsDataURL(f);
 };
 $('#btnFoto').onclick = ()=> $('#fileInput').click();
 $('#btnSinFoto').onclick = ()=>{ $('#stage').classList.remove('show'); imgReady=false; renderResults(); };
@@ -345,8 +362,8 @@ $('#btnLive').onclick = async ()=>{
 };
 $('#btnShot').onclick = ()=>{
   const v=$('#video'); const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
-  c.getContext('2d').drawImage(v,0,0); img.src=c.toDataURL('image/jpeg',0.92);
-  img.onload=()=>{ imgReady=true; v.style.display='none'; img.style.display='block'; $('#btnShot').style.display='none'; stopLive(); fitCanvas(); anchors=null; drawOverlay(); };
+  c.getContext('2d').drawImage(v,0,0); const src=c.toDataURL('image/jpeg',0.92);
+  $('#btnShot').style.display='none'; stopLive(); setPhoto(src);
 };
 function stopLive(){ if(liveStream){ liveStream.getTracks().forEach(t=>t.stop()); liveStream=null; } $('#video').style.display='none'; }
 window.addEventListener('resize', ()=>{ if(imgReady){ fitCanvas(); drawOverlay(); } });
@@ -523,20 +540,28 @@ function glyph(p,ch,col){ const s=Math.max(22,p.r*1.6); ctx.font='bold '+s+'px s
 /* ---------- Páginas: selector ---------- */
 function syncPageSeg(){ document.querySelectorAll('#pageSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.cp===curPage)); }
 function setPageMode(pm){
-  pageMode=pm; LS.setItem('pageMode',pm); curPage=1; anchors=null; mode='idle'; setHint('');
+  anchorsByPage[curPage]=anchors;                 // guarda referencias de la página que dejamos
+  pageMode=pm; LS.setItem('pageMode',pm); curPage=1; mode='idle'; setHint('');
   document.querySelectorAll('#pagesSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.p===pm));
   $('#pageSeg').style.display = pm===2 ? 'flex' : 'none'; syncPageSeg();
-  refreshCalStatus(); drawOverlay();
+  anchors = anchorsByPage[1] || null;
+  refreshCalStatus(); showPagePhoto(1);
 }
 function setCurPage(p){
-  curPage=p; anchors=null; mode='idle'; setHint(''); syncPageSeg();
-  refreshCalStatus(); drawOverlay();
+  anchorsByPage[curPage]=anchors;                 // guarda referencias de la página actual
+  curPage=p; mode='idle'; setHint(''); syncPageSeg();
+  anchors = anchorsByPage[p] || null;
+  refreshCalStatus(); showPagePhoto(p);           // recupera y muestra la foto de esa página
 }
 document.querySelectorAll('#pagesSeg button').forEach(b=> b.onclick=()=>setPageMode(+b.dataset.p));
 document.querySelectorAll('#pageSeg button').forEach(b=> b.onclick=()=>setCurPage(+b.dataset.cp));
 
 /* ---------- Reset / arranque ---------- */
-$('#btnReset').onclick = ()=>{ answers=newAnswers(); anchors=null; mode='idle'; curPage=1; syncPageSeg(); setHint(''); renderResults(); refreshCalStatus(); drawOverlay(); };
+$('#btnReset').onclick = ()=>{
+  answers=newAnswers(); anchors=null; anchorsByPage={}; photos={}; mode='idle'; curPage=1;
+  imgReady=false; $('#stage').classList.remove('show'); syncPageSeg(); setHint('');
+  renderResults(); refreshCalStatus(); ctx.clearRect(0,0,cv.width,cv.height);
+};
 document.querySelectorAll('#modelSeg button').forEach(b=> b.onclick=()=>setModel(+b.dataset.m));
 
 loadCalib(); setModel(1); setPageMode(pageMode);
