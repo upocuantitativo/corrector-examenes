@@ -91,6 +91,22 @@ páginas tenga el examen.
 
 ---
 
+## 🧠 Aprendizaje del modelo (apartado 5)
+
+Cada vez que resuelves una **duda**, la app guarda un ejemplo (los 3 valores de
+tinta de esa pregunta + la letra que indicas — **sin imágenes ni nombres**).
+Con esos ejemplos se entrena un modelo que reduce las dudas con el tiempo.
+
+- **Actualizar modelo**: descarga la última versión entrenada
+  (`https://upocuantitativo.github.io/corrector-examenes-datos/model.json`).
+  Mientras haya pocos datos usa la heurística; con suficientes, un modelo entrenado.
+- **Exportar para el servidor (JSONL)** → sube ese archivo a la carpeta
+  `samples/` del repo de datos (`corrector-examenes-datos`). GitHub reentrena
+  solo y la app se descarga el modelo nuevo. (Sin servidor.)
+- **Subida automática (opcional)**: despliega el Worker de Cloudflare (ver el repo
+  de datos, carpeta `worker/`) y pega su URL + clave en la app; entonces los
+  ejemplos se suben solos.
+
 ## 📲 Instalarla como app (icono en el móvil)
 
 La cámara en vivo y la instalación necesitan **HTTPS**. Tienes dos opciones:

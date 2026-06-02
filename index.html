@@ -192,16 +192,23 @@
   <!-- Aprendizaje -->
   <div class="card">
     <h2>5 · Aprendizaje del modelo</h2>
-    <p class="muted">Cada duda que resuelves se guarda como ejemplo (recorte de la respuesta + letra que indicas). Con esos ejemplos el modelo aprende y habrá menos dudas.</p>
-    <p class="muted">Ejemplos guardados en este móvil: <b id="smpCount">0</b></p>
+    <p class="muted" id="modelInfo">Modelo: (no cargado)</p>
     <div class="row">
-      <button id="btnExportSamples" class="sec">⬇️ Exportar ejemplos (JSON)</button>
+      <button id="btnLoadModel" class="sec">🔄 Actualizar modelo</button>
+    </div>
+    <p class="muted" style="margin-top:10px">Cada duda que resuelves se guarda como ejemplo (3 valores de tinta + la letra que indicas) y mejora el modelo. Ejemplos en este móvil: <b id="smpCount">0</b></p>
+    <div class="row">
+      <button id="btnExportJsonl" class="sec">⬆️ Exportar para el servidor (JSONL)</button>
+      <button id="btnExportSamples" class="ghost">Backup completo</button>
       <button id="btnClearSamples" class="ghost">Vaciar</button>
     </div>
-    <div style="margin-top:8px">
-      <label class="small">Servidor de aprendizaje (opcional)</label>
-      <input id="cfgUploadUrl" type="text" placeholder="https://tu-servidor/api/sample" style="width:100%; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:8px; font-size:13px; margin-top:4px">
-      <p class="muted" style="margin:4px 0 0; font-size:12px">Si pones la URL de un servidor, cada ejemplo se sube automáticamente para entrenar un modelo común. <b>Pendiente de montar contigo</b> (backend + GitHub). Sin URL, todo queda en el móvil y puedes exportarlo.</p>
+    <div style="margin-top:10px">
+      <label class="small">URL del modelo</label>
+      <input id="cfgModelUrl" type="text" placeholder="(por defecto: repo de datos)" style="width:100%; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:8px; font-size:13px; margin-top:4px">
+      <label class="small" style="margin-top:8px; display:block">Servidor de subida automática (opcional · Worker)</label>
+      <input id="cfgUploadUrl" type="text" placeholder="https://...workers.dev" style="width:100%; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:8px; font-size:13px; margin-top:4px">
+      <input id="cfgUploadKey" type="text" placeholder="clave (x-api-key)" style="width:100%; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:8px; font-size:13px; margin-top:6px">
+      <p class="muted" style="margin:6px 0 0; font-size:12px">Sin Worker: usa «Exportar JSONL» y sube el archivo a la carpeta <b>samples/</b> del repo de datos; GitHub reentrena solo y la app descarga el modelo. El Worker (opcional) hace esa subida automática.</p>
     </div>
   </div>
 
@@ -276,6 +283,8 @@ let lastScores = {};                  // {q: [sa,sb,sc]} de la última detecció
 let pagesDetected = new Set();        // páginas ya detectadas en este examen del alumno
 let reviewQueue = [], reviewIdx = 0;  // cola de dudas a confirmar por el profesor
 let currentCropUrl = null;            // recorte ampliado de la pregunta en revisión
+let MODEL = null;                     // modelo descargado (Fase 2); null → heurística
+const DEFAULT_MODEL_URL = 'https://upocuantitativo.github.io/corrector-examenes-datos/model.json';
 
 const $ = s => document.querySelector(s);
 const fmt = n => n.toFixed(2).replace('.', ',');
@@ -629,6 +638,11 @@ function detect(page){
     if(kMode){
       // definir SOLUCIONES: una única respuesta por pregunta (la más marcada)
       if(best>=floor) EX().keys[q]=OPTS[order[0]];
+    } else if(MODEL && MODEL.type==='logreg'){
+      // MODELO entrenado (Fase 2): decide y marca duda por margen de probabilidad
+      const pred = modelPredict(sc);
+      answers[q] = (pred.label==='blank') ? null : pred.label;
+      if(pred.margin < (MODEL.doubt_margin||0.18)) answers[q]='doubt';
     } else {
       if(best<floor){ answers[q]=null; }                          // en blanco
       else if(second>=floor && best < second*sens){ answers[q]='doubt'; } // dos marcas similares → duda
@@ -832,6 +846,42 @@ function answerReview(v){
   reviewIdx++; showReview();
 }
 
+/* ============================================================
+   Modelo entrenado (Fase 2): descarga y aplicación en el móvil
+   ============================================================ */
+function modelUrl(){ return LS.getItem('modelUrl') || DEFAULT_MODEL_URL; }
+function featurize(sa,sb,sc){
+  const s=[+sa,+sb,+sc]; const srt=[...s].sort((a,b)=>b-a);
+  const mx=srt[0],mid=srt[1],mn=srt[2];
+  return [s[0],s[1],s[2],mx,mid,mn,mx-mid,mid-mn,s[0]+s[1]+s[2]];
+}
+function modelPredict(scores){
+  const f=featurize(scores[0],scores[1],scores[2]);
+  const xs=f.map((v,j)=>(v-MODEL.mean[j])/MODEL.std[j]);
+  const logits=MODEL.coef.map((row,k)=> row.reduce((a,c,j)=>a+c*xs[j],0)+MODEL.intercept[k]);
+  const m=Math.max(...logits); const ex=logits.map(l=>Math.exp(l-m)); const sum=ex.reduce((a,b)=>a+b,0);
+  const probs=ex.map(e=>e/sum);
+  const idx=probs.map((p,i)=>[p,i]).sort((a,b)=>b[0]-a[0]);
+  const top=idx[0][1], p1=idx[0][0], p2=idx[1][0];
+  return { label: MODEL.classes[top], p1, margin: p1-p2 };
+}
+async function loadModel(silent){
+  try{
+    const r=await fetch(modelUrl()+'?t='+Date.now(), {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const m=await r.json();
+    if(m && m.type){ MODEL=m; updateModelInfo(); if(!silent) renderAndRedetectHint(); return true; }
+  }catch(e){ if(!silent) alert('No se pudo cargar el modelo: '+e.message); }
+  updateModelInfo(); return false;
+}
+function updateModelInfo(){
+  const el=$('#modelInfo'); if(!el) return;
+  if(!MODEL){ el.textContent='Modelo: (no cargado, se usa la heurística)'; return; }
+  if(MODEL.type==='logreg') el.textContent=`Modelo: entrenado · ${MODEL.n_samples} muestras · acierto ${(100*(MODEL.train_accuracy||0)).toFixed(0)}%`;
+  else el.textContent=`Modelo: heurístico (aún pocos datos${MODEL.n_samples!=null?': '+MODEL.n_samples+' muestras':''})`;
+}
+function renderAndRedetectHint(){ setHint('✅ Modelo actualizado. Vuelve a «Detectar» para aplicarlo.'); setTimeout(()=>setHint(''),2600); }
+
 /* ---------- Ejemplos para el modelo (imagen + etiqueta) ---------- */
 function loadSamples(){ try{ return JSON.parse(LS.getItem('samples'))||[]; }catch(e){ return []; } }
 function saveSamples(arr){
@@ -854,15 +904,26 @@ function recordSample(q, label){
 function uploadSample(s){
   const url = LS.getItem('uploadUrl');
   if(!url) return;                              // sin servidor configurado → solo local
-  try{ fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(s)}).catch(()=>{}); }
-  catch(e){}
+  // payload SLIM: solo números + etiqueta (sin imagen ni datos personales)
+  const slim = { scores:s.scores, label:s.label, examId:s.examId, ts:s.ts };
+  const headers = {'Content-Type':'application/json'};
+  const key = LS.getItem('uploadKey'); if(key) headers['x-api-key']=key;
+  try{ fetch(url, {method:'POST', headers, body:JSON.stringify(slim)}).catch(()=>{}); }catch(e){}
 }
-function exportSamples(){
+function exportSamples(){            // backup completo (con recortes), para el profesor
   const arr=loadSamples();
   if(!arr.length){ alert('Aún no hay ejemplos. Resuelve alguna duda primero.'); return; }
-  const blob=new Blob([JSON.stringify(arr,null,2)], {type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='ejemplos_corrector.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  download('ejemplos_corrector.json', JSON.stringify(arr,null,2), 'application/json');
+}
+function exportSamplesJsonl(){       // para subir a samples/ del repo de datos (sin imágenes)
+  const arr=loadSamples().filter(s=>Array.isArray(s.scores));
+  if(!arr.length){ alert('Aún no hay ejemplos con datos de detección.'); return; }
+  const lines = arr.map(s=>JSON.stringify({scores:s.scores, label:s.label, examId:s.examId})).join('\n');
+  download('ejemplos_'+Date.now()+'.jsonl', lines, 'application/json');
+}
+function download(name, text, type){
+  const blob=new Blob([text], {type}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 $('#btnNewExam').onclick = ()=>{
   const name=prompt('Nombre del nuevo examen:', 'Examen '+(DB.order.length+1));
@@ -901,9 +962,15 @@ $('#keyBannerCancel').onclick = ()=>{ keyMode=false; $('#keyBanner').style.displ
 /* ---------- Revisión de dudas + aprendizaje: eventos ---------- */
 document.querySelectorAll('#dlgReview .rvopt').forEach(b=> b.onclick=()=>answerReview(b.dataset.v));
 $('#btnExportSamples').onclick = exportSamples;
+$('#btnExportJsonl').onclick = exportSamplesJsonl;
 $('#btnClearSamples').onclick = ()=>{ if(confirm('¿Vaciar los ejemplos guardados en este móvil?')){ LS.removeItem('samples'); $('#smpCount').textContent='0'; } };
+$('#btnLoadModel').onclick = ()=> loadModel(false);
 $('#cfgUploadUrl').value = LS.getItem('uploadUrl') || '';
 $('#cfgUploadUrl').onchange = ()=>{ const u=$('#cfgUploadUrl').value.trim(); if(u) LS.setItem('uploadUrl',u); else LS.removeItem('uploadUrl'); };
+$('#cfgUploadKey').value = LS.getItem('uploadKey') || '';
+$('#cfgUploadKey').onchange = ()=>{ const u=$('#cfgUploadKey').value.trim(); if(u) LS.setItem('uploadKey',u); else LS.removeItem('uploadKey'); };
+$('#cfgModelUrl').value = (LS.getItem('modelUrl')||'');
+$('#cfgModelUrl').onchange = ()=>{ const u=$('#cfgModelUrl').value.trim(); if(u) LS.setItem('modelUrl',u); else LS.removeItem('modelUrl'); loadModel(false); };
 
 /* ---------- Reset / arranque ---------- */
 $('#btnReset').onclick = ()=>{
@@ -916,6 +983,7 @@ $('#btnReset').onclick = ()=>{
 
 syncExamSel(); setExam(DB.curId);
 $('#smpCount').textContent = loadSamples().length;
+loadModel(true);   // descarga el modelo entrenado (si existe); si no, usa la heurística
 
 /* PWA: registrar service worker solo si es posible (https) */
 if('serviceWorker' in navigator && window.isSecureContext){
