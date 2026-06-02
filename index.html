@@ -417,12 +417,31 @@ function evtToImg(ev){
   const y = (p.clientY - r.top ) / r.height * cv.height;
   return {x,y};
 }
-cv.addEventListener('click', ev=>{
-  if(!imgReady) return;
-  const p = evtToImg(ev);
-  if(mode==='calibrate') return onCalTap(p);
-  if(mode==='anchors')   return onAnchorTap(p);
+/* Colocación con LUPA: mantener el dedo muestra un círculo ampliado con cruz;
+   el punto se fija donde se levanta el dedo. Permite calibrar con precisión
+   aunque la foto se vea pequeña. Funciona en calibración y en referencias. */
+let loupe = {active:false, x:0, y:0};
+function placing(){ return mode==='calibrate' || mode==='anchors'; }
+cv.addEventListener('pointerdown', ev=>{
+  if(!imgReady || !placing()) return;
+  ev.preventDefault();
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+  const p = evtToImg(ev); loupe.active=true; loupe.x=p.x; loupe.y=p.y; drawOverlay();
 });
+cv.addEventListener('pointermove', ev=>{
+  if(!loupe.active) return;
+  ev.preventDefault();
+  const p = evtToImg(ev); loupe.x=p.x; loupe.y=p.y; drawOverlay();
+});
+cv.addEventListener('pointerup', ev=>{
+  if(!loupe.active) return;
+  ev.preventDefault();
+  const p = {x:loupe.x, y:loupe.y}; loupe.active=false;
+  if(mode==='calibrate') onCalTap(p);
+  else if(mode==='anchors') onAnchorTap(p);
+  else drawOverlay();
+});
+cv.addEventListener('pointercancel', ()=>{ loupe.active=false; drawOverlay(); });
 
 /* ---------- Geometría calibración (relativa a 2 anclas A=Q1a, B=Q10c) ---------- */
 function pointsFromTaps(taps){
@@ -460,7 +479,7 @@ $('#btnCal').onclick = ()=>{
 function calPrompt(){
   const i=calBuf.length, total=calCount(); if(i>=total) return 'Listo. Pulsa «Detectar».';
   const qs=pageQuestions(curPage); const q=qs[Math.floor(i/3)]+1, o=OPTS[i%3];
-  return `Calibrando (${i+1}/${total})${pageTag()}: toca la letra «${o})» de la pregunta ${q}`;
+  return `Calibrando (${i+1}/${total})${pageTag()}: mantén pulsado sobre la letra «${o})» de la pregunta ${q} y suelta (sale una lupa)`;
 }
 function onCalTap(p){
   calBuf.push(p);
@@ -491,13 +510,13 @@ $('#btnAnchors').onclick = ()=>{
   if(!pageCal(curPage)){ alert('Calibra primero '+(EX().pageMode===2?'la página '+curPage+' de ':'')+'este examen (apartado 4).'); return; }
   if(!imgReady){ alert('Toma una foto del examen primero (apartado 2).'); focusStage(); return; }
   const qs=pageQuestions(curPage);
-  mode='anchors'; anchors=[]; setHint('Referencia 1/2: toca la letra «a)» de la pregunta '+(qs[0]+1)); drawOverlay(); focusStage();
+  mode='anchors'; anchors=[]; setHint('Referencia 1/2: mantén pulsado sobre la «a)» de la pregunta '+(qs[0]+1)+' (sale una lupa) y suelta'); drawOverlay(); focusStage();
 };
 function onAnchorTap(p){
   anchors.push(p);
   const qs=pageQuestions(curPage);
   if(anchors.length>=2){ mode='idle'; setHint('Referencias listas.'); setTimeout(()=>setHint(''),1200); detect(curPage); }
-  else setHint('Referencia 2/2: toca la letra «c)» de la pregunta '+(qs[qs.length-1]+1));
+  else setHint('Referencia 2/2: mantén pulsado sobre la «c)» de la pregunta '+(qs[qs.length-1]+1)+' y suelta');
   drawOverlay();
 }
 
@@ -564,10 +583,12 @@ function drawOverlay(){
   if(mode==='calibrate'){
     ctx.fillStyle='#29b6f6';
     calBuf.forEach((p,i)=>{ dot(p.x,p.y,8,'#29b6f6'); ctx.fillStyle='#fff'; });
+    drawLoupe();
     return;
   }
   if(anchors){ anchors.forEach(p=>dot(p.x,p.y,10,'#f9a825')); }
-  const pts = mappedPoints(curPage); if(!pts) return;
+  const pts = mappedPoints(curPage);
+  if(!pts){ drawLoupe(); return; }
   const qs = pageQuestions(curPage);
   for(let lq=0; lq<qs.length; lq++){
     const q=qs[lq], key=EX().keys[q], stu=answers[q], cl=classify(q);
@@ -580,6 +601,38 @@ function drawOverlay(){
     }
     else if(cl==='duda'){ const a=pts[lq*3]; glyph({x:a.x-a.r*1.4,y:a.y}, '?', '#f9a825'); }
   }
+  drawLoupe();
+}
+/* Lupa de aumento para colocar puntos con precisión durante la calibración */
+function drawLoupe(){
+  if(!loupe.active) return;
+  const sc = (cv.clientWidth||cv.width) / cv.width;   // px pantalla por px imagen
+  const M = 4;                                        // aumento respecto a la vista base
+  const R = 78 / sc;                                  // radio de la lupa (≈78 px de pantalla)
+  const x = loupe.x, y = loupe.y;
+  // colocar la lupa por encima del dedo; si no cabe arriba, debajo
+  let lcx = x, lcy = y - (R*1.7 + R);
+  if(lcy - R < 0) lcy = y + (R*1.7 + R);
+  lcx = Math.max(R, Math.min(cv.width - R, lcx));
+  lcy = Math.max(R, Math.min(cv.height - R, lcy));
+  const srcHalf = R / M;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(lcx, lcy, R, 0, 7); ctx.closePath();
+  ctx.fillStyle = '#000'; ctx.fill();
+  ctx.clip();
+  ctx.drawImage(img, x-srcHalf, y-srcHalf, 2*srcHalf, 2*srcHalf, lcx-R, lcy-R, 2*R, 2*R);
+  ctx.restore();
+  // borde de la lupa
+  ctx.beginPath(); ctx.arc(lcx, lcy, R, 0, 7); ctx.lineWidth = 3/sc; ctx.strokeStyle = '#0d47a1'; ctx.stroke();
+  // cruz central (= punto exacto que se va a fijar)
+  ctx.strokeStyle = '#d32f2f'; ctx.lineWidth = 1.5/sc;
+  ctx.beginPath();
+  ctx.moveTo(lcx-R*0.5, lcy); ctx.lineTo(lcx+R*0.5, lcy);
+  ctx.moveTo(lcx, lcy-R*0.5); ctx.lineTo(lcx, lcy+R*0.5);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(lcx, lcy, 3/sc, 0, 7); ctx.fillStyle='#d32f2f'; ctx.fill();
+  // marca del punto real sobre la foto (bajo el dedo)
+  ctx.beginPath(); ctx.arc(x, y, 4/sc, 0, 7); ctx.fillStyle='#d32f2f'; ctx.fill();
 }
 function dot(x,y,r,col){ ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fillStyle=col; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#fff'; ctx.stroke(); }
 function ring(p,col){ ctx.beginPath(); ctx.arc(p.x,p.y,p.r*1.15,0,7); ctx.lineWidth=Math.max(3,p.r*0.18); ctx.strokeStyle=col; ctx.stroke(); }

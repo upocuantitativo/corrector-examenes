@@ -58,8 +58,12 @@ Dos formas:
 Para que detecte sola la respuesta marcada en la foto:
 
 1. **Calibra una vez por modelo** (apartado 4 → «🎯 Calibrar este modelo»):
-   con una foto bien encuadrada, toca las **30 letras** en orden
+   con una foto bien encuadrada, señala las **30 letras** en orden
    (a, b, c de la pregunta 1; a, b, c de la 2; … hasta la 10).
+   **Con lupa para precisión**: mantén el dedo pulsado sobre la letra —aparece
+   un círculo ampliado con una cruz— deslízalo hasta centrar la cruz en la
+   letra y **suelta** para fijar el punto (así no te tapa el dedo aunque la
+   foto se vea pequeña). Igual al marcar las 2 referencias.
 2. En cada examen nuevo: pulsa **📍 Marcar referencias** y toca solo
    **la «a)» de la pregunta 1** y **la «c)» de la pregunta 10**.
 3. Pulsa **✨ Detectar respuestas**. La app rellena el panel sola.
