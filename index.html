@@ -51,6 +51,7 @@
   .opt.key{outline:2px solid var(--ok); outline-offset:1px;}
   .state{font-size:20px; width:30px;}
   .s-ok{color:var(--ok);} .s-mal{color:var(--mal);} .s-duda{color:var(--duda);} .s-bl{color:var(--blanco);}
+  .s-blanco{color:var(--blanco);} .s-anulada{color:#b39ddb;}
   /* Resumen */
   #resumen{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:10px;}
   .stat{background:#0c1016; border:1px solid var(--linea); border-radius:10px; padding:8px; text-align:center;}
@@ -61,6 +62,7 @@
   .muted{color:var(--txt2); font-size:13px; line-height:1.45;}
   .keyedit{display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap;}
   input[type=range]{width:100%;}
+  input[type=number]{background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:6px 8px; font-size:14px;}
   label.small{font-size:12px; color:var(--txt2);}
   dialog{border:none; border-radius:16px; background:var(--card); color:var(--txt); padding:16px; max-width:320px;}
   dialog::backdrop{background:rgba(0,0,0,.6);}
@@ -90,6 +92,12 @@
       <button id="btnRenameExam" class="ghost">✏️ Renombrar</button>
       <button id="btnDelExam" class="ghost">🗑️ Borrar</button>
     </div>
+
+    <div class="row" style="margin-top:10px; align-items:center; gap:12px">
+      <label class="small">Acierto&nbsp; +<input id="cfgOk" type="number" step="0.05" min="0" value="0.3" style="width:64px"></label>
+      <label class="small">Fallo&nbsp; <input id="cfgBad" type="number" step="0.05" max="0" value="-0.1" style="width:64px"></label>
+    </div>
+    <p class="muted" style="margin:4px 0 0">El <b>fallo</b> es lo que <b>resta</b> cada respuesta incorrecta (pon <b>0</b> si no quieres penalizar). Dudas, blancos y anuladas nunca puntúan.</p>
 
     <h2 style="margin-top:14px">Soluciones correctas</h2>
     <div class="row" style="margin-bottom:8px">
@@ -141,7 +149,7 @@
   </div>
 
   <!-- Resultados -->
-  <div class="card">
+  <div class="card" id="card-result">
     <h2>3 · Corrección</h2>
     <div id="resumen">
       <div class="stat"><b id="nAc" class="s-ok">0</b><span>Aciertos</span></div>
@@ -181,8 +189,24 @@
     </p>
   </div>
 
+  <!-- Aprendizaje -->
+  <div class="card">
+    <h2>5 · Aprendizaje del modelo</h2>
+    <p class="muted">Cada duda que resuelves se guarda como ejemplo (recorte de la respuesta + letra que indicas). Con esos ejemplos el modelo aprende y habrá menos dudas.</p>
+    <p class="muted">Ejemplos guardados en este móvil: <b id="smpCount">0</b></p>
+    <div class="row">
+      <button id="btnExportSamples" class="sec">⬇️ Exportar ejemplos (JSON)</button>
+      <button id="btnClearSamples" class="ghost">Vaciar</button>
+    </div>
+    <div style="margin-top:8px">
+      <label class="small">Servidor de aprendizaje (opcional)</label>
+      <input id="cfgUploadUrl" type="text" placeholder="https://tu-servidor/api/sample" style="width:100%; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:8px; font-size:13px; margin-top:4px">
+      <p class="muted" style="margin:4px 0 0; font-size:12px">Si pones la URL de un servidor, cada ejemplo se sube automáticamente para entrenar un modelo común. <b>Pendiente de montar contigo</b> (backend + GitHub). Sin URL, todo queda en el móvil y puedes exportarlo.</p>
+    </div>
+  </div>
+
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · +0,3 acierto / −0,1 fallo · v1.0
+    Corrector tipo test · acierto/fallo configurables · v2.0
   </p>
 </main>
 
@@ -194,9 +218,28 @@
     <button class="sec dlgopt" data-v="b">b</button>
     <button class="sec dlgopt" data-v="c">c</button>
     <button class="ghost dlgopt" data-v="null">En blanco</button>
+    <button class="ghost dlgopt" data-v="void" style="color:#b39ddb">Anulada ∅</button>
     <button class="ghost dlgopt" data-v="doubt" style="color:var(--duda)">Duda (?)</button>
   </div>
   <button class="ghost wide" style="margin-top:10px" onclick="document.getElementById('dlgRow').close()">Cerrar</button>
+</dialog>
+
+<!-- Diálogo de resolución de DUDAS (guiado) -->
+<dialog id="dlgReview">
+  <h3 style="margin:0 0 4px">¿Qué marcó el alumno?</h3>
+  <div class="muted" id="rvN" style="margin-bottom:8px"></div>
+  <img id="rvImg" alt="" style="width:100%; max-height:200px; object-fit:contain; background:#fff; border-radius:10px; display:none">
+  <div class="muted" style="margin:8px 0 4px">Solución correcta de esta pregunta: <b id="rvKey" style="color:var(--ok)"></b></div>
+  <div class="row" style="justify-content:center; margin-top:6px">
+    <button class="sec rvopt" data-v="a">a</button>
+    <button class="sec rvopt" data-v="b">b</button>
+    <button class="sec rvopt" data-v="c">c</button>
+  </div>
+  <div class="row" style="justify-content:center; margin-top:6px">
+    <button class="ghost rvopt" data-v="null">En blanco</button>
+    <button class="ghost rvopt" data-v="void" style="color:#b39ddb">Anulada ∅</button>
+  </div>
+  <p class="muted" style="margin:8px 0 0; font-size:12px">Tu elección fija la nota y enseña al modelo (cada vez menos dudas).</p>
 </dialog>
 
 <script>
@@ -229,6 +272,10 @@ let mode = 'idle';                    // 'idle'|'calibrate'|'anchors'
 let calBuf = [];                      // puntos durante calibración
 let liveStream = null;
 let keyMode = false;                  // true → detectar/tocar escribe en SOLUCIONES, no en respuestas
+let lastScores = {};                  // {q: [sa,sb,sc]} de la última detección (para revisión/aprendizaje)
+let pagesDetected = new Set();        // páginas ya detectadas en este examen del alumno
+let reviewQueue = [], reviewIdx = 0;  // cola de dudas a confirmar por el profesor
+let currentCropUrl = null;            // recorte ampliado de la pregunta en revisión
 
 const $ = s => document.querySelector(s);
 const fmt = n => n.toFixed(2).replace('.', ',');
@@ -244,10 +291,17 @@ let DB = loadDB();
 
 function blankExam(name){
   return { id:uid(), name:name||'Examen', nq:NQ, keys:new Array(NQ).fill('a'),
-           pageMode:1, calib:{}, masterPhotos:{} };
+           pageMode:1, calib:{}, masterPhotos:{},
+           pointsOk:0.3, pointsBad:-0.1 };   // el profesor define el fallo (0 = no resta)
+}
+// Asegura que todo examen tenga los campos de puntuación (migración suave)
+function normalizeExam(ex){
+  if(typeof ex.pointsOk !== 'number') ex.pointsOk = 0.3;
+  if(typeof ex.pointsBad !== 'number') ex.pointsBad = -0.1;
+  return ex;
 }
 function loadDB(){
-  try{ const d=JSON.parse(LS.getItem('examsDB')); if(d && d.exams && d.order && d.order.length) return d; }catch(e){}
+  try{ const d=JSON.parse(LS.getItem('examsDB')); if(d && d.exams && d.order && d.order.length){ for(const id in d.exams) normalizeExam(d.exams[id]); return d; } }catch(e){}
   // Primera vez: construir Modelo 1 y 2 desde defaults + datos antiguos si los hubiera
   let ok=null, oc={}, opm=1;
   try{ ok=JSON.parse(LS.getItem('keys')); }catch(e){}
@@ -286,7 +340,9 @@ function setExam(id){
   DB.curId=id; saveDB();
   answers=newAnswers(); anchors=null; anchorsByPage={}; photos={}; imgReady=false; mode='idle';
   keyMode=false; $('#keyBanner').style.display='none'; curPage=1;
+  lastScores={}; pagesDetected=new Set(); reviewQueue=[]; reviewIdx=0;
   $('#modelPill').textContent = EX().name;
+  $('#cfgOk').value = EX().pointsOk; $('#cfgBad').value = EX().pointsBad;
   syncExamSel();
   document.querySelectorAll('#pagesSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.p===EX().pageMode));
   $('#pageSeg').style.display = EX().pageMode===2 ? 'flex':'none'; syncPageSeg();
@@ -310,18 +366,23 @@ function renderKeys(){
 }
 
 /* ---------- UI: resultados + algoritmo de corrección ---------- */
+// estados: ok | mal | duda | blanco | anulada (el alumno indica que no contesta)
 function classify(i){
   const stu = answers[i], key = EX().keys[i];
   if(stu==='doubt') return 'duda';
+  if(stu==='void')  return 'anulada';
   if(stu===null)    return 'blanco';
   return stu===key ? 'ok' : 'mal';
 }
+function maxPoints(){ return EX().nq * EX().pointsOk; }
 function grade(){
-  let ac=0, fa=0, du=0, bl=0;
+  let ac=0, fa=0, du=0, bl=0, an=0;
   for(let i=0;i<NQ;i++){ const c=classify(i);
-    if(c==='ok')ac++; else if(c==='mal')fa++; else if(c==='duda')du++; else bl++; }
-  const pts = ac*POINTS_OK + fa*POINTS_BAD;          // dudas y blancos no puntúan
-  return {ac,fa,du,bl, pts, nota: MAX_POINTS>0 ? pts/MAX_POINTS*10 : 0};
+    if(c==='ok')ac++; else if(c==='mal')fa++; else if(c==='duda')du++;
+    else if(c==='anulada')an++; else bl++; }
+  const pts = ac*EX().pointsOk + fa*EX().pointsBad;   // dudas, blancos y anuladas no puntúan
+  const mx = maxPoints();
+  return {ac,fa,du,bl,an, pts, mx, nota: mx>0 ? pts/mx*10 : 0};
 }
 function literal(nota10){
   if(nota10>=9) return 'Sobresaliente';
@@ -331,7 +392,7 @@ function literal(nota10){
 }
 function renderResults(){
   const tb = $('#tbody'); tb.innerHTML='';
-  const ICON = {ok:'✔', mal:'✘', duda:'?', blanco:'·'};
+  const ICON = {ok:'✔', mal:'✘', duda:'?', blanco:'·', anulada:'∅'};
   for(let i=0;i<NQ;i++){
     const c = classify(i);
     const tr = document.createElement('tr');
@@ -348,9 +409,11 @@ function renderResults(){
   });
   tb.querySelectorAll('[data-more]').forEach(b=> b.onclick=()=>openRowDialog(+b.dataset.more));
   const g = grade();
-  $('#nAc').textContent=g.ac; $('#nFa').textContent=g.fa; $('#nDu').textContent=g.du; $('#nBl').textContent=g.bl;
-  $('#puntos').textContent = fmt(g.pts)+' / '+fmt(MAX_POINTS);
+  $('#nAc').textContent=g.ac; $('#nFa').textContent=g.fa; $('#nDu').textContent=g.du;
+  $('#nBl').textContent=g.bl + (g.an? ' · '+g.an+'∅' : '');
+  $('#puntos').textContent = fmt(g.pts)+' / '+fmt(g.mx);
   $('#nota').textContent = 'Nota: '+fmt(g.nota)+' / 10 · '+literal(g.nota);
+  $('#desglose').textContent = `+${fmt(EX().pointsOk)} acierto · ${fmt(EX().pointsBad)} fallo · dudas/blancos/anuladas no cuentan`;
 }
 function openRowDialog(i){
   $('#dlgN').textContent = i+1;
@@ -455,10 +518,10 @@ function pointsFromTaps(taps){
   });
   return { rel, r: 0.022 };  // radio ROI como fracción de L
 }
-function mappedPoints(page){
-  // Posiciones (coords imagen) de las letras de 'page' usando anchors[0],[1] y su calib
-  const cal = pageCal(page); if(!cal || !anchors || anchors.length<2) return null;
-  const A=anchors[0], B=anchors[1];
+function mappedFrom(cal, an){
+  // Posiciones (coords imagen) de las letras usando 2 anclas an[0],an[1] y su calib
+  if(!cal || !an || an.length<2) return null;
+  const A=an[0], B=an[1];
   const vx=B.x-A.x, vy=B.y-A.y, L=Math.hypot(vx,vy)||1;
   const ux=vx/L, uy=vy/L, px=-uy, py=ux;
   return cal.rel.map(rp=>({
@@ -467,6 +530,7 @@ function mappedPoints(page){
     r: cal.r*L
   }));
 }
+function mappedPoints(page){ return mappedFrom(pageCal(page), anchors); }
 
 /* ---------- Calibración: tocar las letras de la página actual ---------- */
 function focusStage(){ try{ $('#stage').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){ window.scrollTo(0,0); } }
@@ -485,8 +549,11 @@ function onCalTap(p){
   calBuf.push(p);
   if(calBuf.length>=calCount()){
     EX().calib[curPage]=pointsFromTaps(calBuf); saveDB();
-    mode='idle'; setHint('✅ Calibrado: '+EX().name+pageTag()); refreshCalStatus();
-    setTimeout(()=>setHint(''),1800);
+    mode='idle';
+    const falta2 = EX().pageMode===2 && !pageCal(curPage===1?2:1);
+    setHint('✅ Calibración enviada y guardada'+pageTag()+'. '+(falta2 ? 'Ahora calibra la otra página.' : 'Ya puedes corregir: haz la foto y pulsa «Detectar».'));
+    refreshCalStatus();
+    setTimeout(()=>setHint(''),3000);
   }else setHint(calPrompt());
   drawOverlay();
 }
@@ -555,6 +622,7 @@ function detect(page){
   for(let lq=0; lq<qs.length; lq++){
     const q=qs[lq];
     const sc = [0,1,2].map(k=>inkScore(data,c.width,c.height, pts[lq*3+k].x, pts[lq*3+k].y, pts[lq*3+k].r));
+    lastScores[q] = sc;                                           // guardamos para revisión/aprendizaje
     const order=[0,1,2].sort((a,b)=>sc[b]-sc[a]);
     const best=sc[order[0]], second=sc[order[1]];
     const floor=0.14; // por debajo, se considera sin marca apreciable
@@ -570,8 +638,38 @@ function detect(page){
   if(kMode){
     EX().masterPhotos[page]=photos[page]||''; keyMode=false; $('#keyBanner').style.display='none'; saveDB();
     renderKeys(); setHint('✅ Soluciones guardadas. Revísalas en el apartado 1.'); setTimeout(()=>setHint(''),2600);
+    renderResults(); drawOverlay(); return;
   }
   renderResults(); drawOverlay();
+  pagesDetected.add(page);
+  afterPageDetected(page);
+}
+// ¿la pregunta necesita que el profesor la confirme? (dudas + casos poco claros)
+function needsReview(q){
+  const sc = lastScores[q]; if(!sc) return false;
+  if(answers[q]==='doubt') return true;
+  const o=[0,1,2].sort((a,b)=>sc[b]-sc[a]); const best=sc[o[0]], second=sc[o[1]], floor=0.14;
+  if(best>=floor && best < floor*1.6) return true;          // marca tenue → poco clara
+  if(best>=floor && second>=floor && best < second*1.9) return true; // dos marcas cercanas
+  return false;
+}
+// Mensaje "OK" por página, aviso de "da la vuelta", y al terminar → resolver dudas
+function afterPageDetected(page){
+  const qs=pageQuestions(page);
+  const flagged = qs.filter(needsReview).length;
+  const okCount = qs.length - flagged;
+  if(EX().pageMode===2){
+    if(page===1 && !pagesDetected.has(2)){
+      setHint(`✅ Página 1: ${okCount} claras${flagged?', '+flagged+' por revisar':''}. 🔄 Da la vuelta y haz la foto de la PÁGINA 2.`);
+      setCurPage(2); return;
+    }
+    if(page===2 && !pagesDetected.has(1)){
+      setHint(`✅ Página 2 lista (${okCount} claras). Falta la PÁGINA 1: vuelve a ella y haz su foto.`);
+      setCurPage(1); return;
+    }
+  }
+  setHint('✅ Detección completa. Vamos con las dudas…');
+  setTimeout(resolveDoubts, 400);
 }
 
 /* ---------- Dibujo del overlay (✔/✘/?) ---------- */
@@ -664,6 +762,108 @@ function syncExamSel(){
   DB.order.forEach(id=>{ const o=document.createElement('option'); o.value=id; o.textContent=DB.exams[id].name; if(id===DB.curId)o.selected=true; sel.appendChild(o); });
 }
 $('#examSel').onchange = e=> setExam(e.target.value);
+
+/* Puntuación configurable por examen (el profesor define cuánto resta un fallo) */
+$('#cfgOk').onchange = ()=>{ const v=parseFloat($('#cfgOk').value); if(!isNaN(v)&&v>=0){ EX().pointsOk=v; saveDB(); renderResults(); } };
+$('#cfgBad').onchange = ()=>{ let v=parseFloat($('#cfgBad').value); if(!isNaN(v)){ if(v>0)v=-v; EX().pointsBad=v; $('#cfgBad').value=v; saveDB(); renderResults(); } };
+
+/* ============================================================
+   Resolución de dudas guiada + recogida de ejemplos (aprendizaje)
+   ============================================================ */
+function pageOf(q){ if(EX().pageMode===1) return 1; return q < 4 ? 1 : 2; }
+function localIndex(q){ const qs = pageOf(q)===1 ? (EX().pageMode===1? [...Array(NQ).keys()] : [0,1,2,3]) : [4,5,6,7,8,9]; return qs.indexOf(q); }
+
+// Recorta y amplía la zona (a,b,c) de una pregunta desde la foto de su página
+function cropQuestion(q){
+  return new Promise(res=>{
+    const p=pageOf(q), cal=EX().calib[p], an=anchorsByPage[p], ph=photos[p];
+    const pts = mappedFrom(cal, an);
+    if(!pts || !ph){ res(null); return; }
+    const lq = localIndex(q); if(lq<0){ res(null); return; }
+    const three=[pts[lq*3],pts[lq*3+1],pts[lq*3+2]]; const r=three[0].r;
+    const xs=three.map(t=>t.x), ys=three.map(t=>t.y);
+    const x0=Math.min(...xs)-r*2.5, x1=Math.max(...xs)+r*2.5;
+    const y0=Math.min(...ys)-r*1.6, y1=Math.max(...ys)+r*1.6;
+    const im=new Image();
+    im.onload=()=>{
+      const w=Math.max(1,x1-x0), h=Math.max(1,y1-y0);
+      const sc=Math.min(3.5, 320/Math.max(w,h));
+      const cc=document.createElement('canvas'); cc.width=Math.round(w*sc); cc.height=Math.round(h*sc);
+      const cx=cc.getContext('2d'); cx.drawImage(im, x0,y0,w,h, 0,0,cc.width,cc.height);
+      res(cc.toDataURL('image/jpeg',0.85));
+    };
+    im.onerror=()=>res(null);
+    im.src=ph;
+  });
+}
+
+function resolveDoubts(){
+  reviewQueue=[]; for(let q=0;q<NQ;q++){ if(needsReview(q)) reviewQueue.push(q); }
+  reviewIdx=0;
+  if(reviewQueue.length===0){
+    setHint('✅ Sin dudas: la corrección está lista.');
+    document.querySelector('#card-result').scrollIntoView({behavior:'smooth'});
+    return;
+  }
+  showReview();
+}
+async function showReview(){
+  const d=$('#dlgReview');
+  if(reviewIdx>=reviewQueue.length){
+    if(d.open) d.close();
+    setHint('✅ Dudas resueltas. Resultado actualizado.');
+    document.querySelector('#card-result').scrollIntoView({behavior:'smooth'});
+    return;
+  }
+  const q=reviewQueue[reviewIdx];
+  $('#rvN').textContent = `Pregunta ${q+1}  ·  duda ${reviewIdx+1}/${reviewQueue.length}`;
+  $('#rvKey').textContent = EX().keys[q];
+  currentCropUrl = await cropQuestion(q);
+  $('#rvImg').src = currentCropUrl || '';
+  $('#rvImg').style.display = currentCropUrl ? 'block' : 'none';
+  if(!d.open) d.showModal();
+}
+function answerReview(v){
+  const q=reviewQueue[reviewIdx];
+  const ans = (v==='null') ? null : v;          // 'a'|'b'|'c'|null(blanco)|'void'(anulada)
+  recordSample(q, ans);                          // ejemplo para el modelo
+  answers[q] = ans;
+  renderResults(); drawOverlay();
+  reviewIdx++; showReview();
+}
+
+/* ---------- Ejemplos para el modelo (imagen + etiqueta) ---------- */
+function loadSamples(){ try{ return JSON.parse(LS.getItem('samples'))||[]; }catch(e){ return []; } }
+function saveSamples(arr){
+  try{ LS.setItem('samples', JSON.stringify(arr)); }
+  catch(e){ // sin espacio: recorta a los 120 más recientes
+    try{ LS.setItem('samples', JSON.stringify(arr.slice(-120))); }catch(e2){}
+  }
+}
+function recordSample(q, label){
+  const s = {
+    examId: DB.curId, examName: EX().name, q, page: pageOf(q),
+    scores: lastScores[q] || null, autodetect: answers[q],
+    label: (label===null ? 'blank' : label),   // a|b|c|blank|void
+    key: EX().keys[q], roi: currentCropUrl || null, ts: Date.now()
+  };
+  const arr = loadSamples(); arr.push(s); saveSamples(arr);
+  $('#smpCount') && ($('#smpCount').textContent = arr.length);
+  uploadSample(s);                              // enganche de subida (si hay servidor configurado)
+}
+function uploadSample(s){
+  const url = LS.getItem('uploadUrl');
+  if(!url) return;                              // sin servidor configurado → solo local
+  try{ fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(s)}).catch(()=>{}); }
+  catch(e){}
+}
+function exportSamples(){
+  const arr=loadSamples();
+  if(!arr.length){ alert('Aún no hay ejemplos. Resuelve alguna duda primero.'); return; }
+  const blob=new Blob([JSON.stringify(arr,null,2)], {type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='ejemplos_corrector.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
 $('#btnNewExam').onclick = ()=>{
   const name=prompt('Nombre del nuevo examen:', 'Examen '+(DB.order.length+1));
   if(name===null) return;
@@ -698,15 +898,24 @@ $('#btnKeyFromPhoto').onclick = ()=>{
 };
 $('#keyBannerCancel').onclick = ()=>{ keyMode=false; $('#keyBanner').style.display='none'; };
 
+/* ---------- Revisión de dudas + aprendizaje: eventos ---------- */
+document.querySelectorAll('#dlgReview .rvopt').forEach(b=> b.onclick=()=>answerReview(b.dataset.v));
+$('#btnExportSamples').onclick = exportSamples;
+$('#btnClearSamples').onclick = ()=>{ if(confirm('¿Vaciar los ejemplos guardados en este móvil?')){ LS.removeItem('samples'); $('#smpCount').textContent='0'; } };
+$('#cfgUploadUrl').value = LS.getItem('uploadUrl') || '';
+$('#cfgUploadUrl').onchange = ()=>{ const u=$('#cfgUploadUrl').value.trim(); if(u) LS.setItem('uploadUrl',u); else LS.removeItem('uploadUrl'); };
+
 /* ---------- Reset / arranque ---------- */
 $('#btnReset').onclick = ()=>{
   answers=newAnswers(); anchors=null; anchorsByPage={}; photos={}; mode='idle'; curPage=1;
   keyMode=false; $('#keyBanner').style.display='none';
+  lastScores={}; pagesDetected=new Set(); reviewQueue=[]; reviewIdx=0;
   imgReady=false; $('#stage').classList.remove('show'); syncPageSeg(); setHint('');
   renderResults(); refreshCalStatus(); ctx.clearRect(0,0,cv.width,cv.height);
 };
 
 syncExamSel(); setExam(DB.curId);
+$('#smpCount').textContent = loadSamples().length;
 
 /* PWA: registrar service worker solo si es posible (https) */
 if('serviceWorker' in navigator && window.isSecureContext){
