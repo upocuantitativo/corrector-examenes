@@ -1,7 +1,7 @@
 /* Service worker: red primero para el HTML (así siempre llega la última versión
    cuando hay internet) y caché de respaldo para uso sin conexión. */
-const CACHE = 'corrector-v6';
-const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'corrector-v7';
+const ASSETS = ['./', 'index.html', 'factory.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

@@ -185,7 +185,26 @@
     </div>
     <p class="muted" style="margin-top:8px">
       Calibrar = enseñar a la app dónde está cada letra. Hazlo <b>una sola vez por examen</b> (y por página) sobre una foto bien encuadrada:
-      tocas las letras (a,b,c de cada pregunta). Después, en cada examen solo marcas 2 referencias y detecta solo.
+      tocas las letras (a,b,c de cada pregunta). Después la app <b>busca sola las referencias</b> en cada foto
+      (autocalibrado); si fallara, pulsa «📍 Marcar referencias» y colócalas tú.
+    </p>
+    <div class="row" style="margin-top:10px">
+      <label class="small" style="display:flex; align-items:center; gap:8px">
+        <input type="checkbox" id="autoCal" style="width:18px; height:18px">
+        🤖 Auto: buscar referencias y modelo al cargar cada foto
+      </label>
+    </div>
+
+    <h2 style="margin-top:16px">Detección de modelo (A/B)</h2>
+    <p class="muted" id="markStatus">Sin configurar.</p>
+    <div class="row" style="margin-top:6px">
+      <button id="btnMarkWord" class="sec">🔤 Marcar palabra distintiva</button>
+      <button id="btnMarkDel" class="ghost">Quitar</button>
+    </div>
+    <p class="muted" style="margin-top:8px">
+      Marca <b>una sola vez</b> la palabra que cambia entre modelos (p. ej. <b>Duración</b>, subrayada en un
+      modelo y sin subrayar en el otro). Después, al enfocar/cargar la foto, la app comprueba el subrayado
+      y <b>elige sola el modelo correcto</b>. Si eligiera mal, cambia el examen a mano en el apartado 1.
     </p>
   </div>
 
@@ -213,7 +232,7 @@
   </div>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · acierto/fallo configurables · v2.0
+    Corrector tipo test · calibrado de fábrica, autocalibrado y detección de modelo A/B · v3.0
   </p>
 </main>
 
@@ -229,6 +248,18 @@
     <button class="ghost dlgopt" data-v="doubt" style="color:var(--duda)">Duda (?)</button>
   </div>
   <button class="ghost wide" style="margin-top:10px" onclick="document.getElementById('dlgRow').close()">Cerrar</button>
+</dialog>
+
+<!-- Diálogo de configuración de la detección de modelo A/B -->
+<dialog id="dlgMark">
+  <h3 style="margin:0 0 8px">Detección de modelo A/B</h3>
+  <p class="muted" style="margin:0 0 10px">Vas a marcar la palabra distintiva (p. ej. «Duración») sobre la foto actual.</p>
+  <label class="small">Si la palabra está <b>SUBRAYADA</b> → corregir con:</label>
+  <select id="mmUnder" class="examsel" style="width:100%; margin:4px 0 10px"></select>
+  <label class="small">Si <b>NO</b> está subrayada → corregir con:</label>
+  <select id="mmPlain" class="examsel" style="width:100%; margin:4px 0 12px"></select>
+  <button id="mmGo" class="wide">Marcar la palabra en la foto</button>
+  <button class="ghost wide" style="margin-top:8px" onclick="document.getElementById('dlgMark').close()">Cancelar</button>
 </dialog>
 
 <!-- Diálogo de resolución de DUDAS (guiado) -->
@@ -249,6 +280,7 @@
   <p class="muted" style="margin:8px 0 0; font-size:12px">Tu elección fija la nota y enseña al modelo (cada vez menos dudas).</p>
 </dialog>
 
+<script src="factory.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -297,6 +329,32 @@ function uid(){ return 'e' + Date.now().toString(36) + Math.random().toString(36
    DB   = { exams:{id:exam}, order:[id...], curId }
    ============================================================ */
 let DB = loadDB();
+ensureFactory(DB);   // calibración de fábrica (PDF del examen): el profe no calibra nada
+
+/* Inyecta la calibración de fábrica y la marca de modelo (palabra «Duración»)
+   en los dos modelos precargados, si aún no tienen calibración propia. */
+function ensureFactory(db){
+  if(!window.FACTORY) return;
+  const ids=db.order;
+  const under=ids.find(id=>/subray/i.test(db.exams[id].name) && !/sin/i.test(db.exams[id].name));
+  const plain=ids.find(id=>/sin\s*subray/i.test(db.exams[id].name));
+  const map={}; if(under) map[under]='m1'; if(plain) map[plain]='m2';
+  let changed=false;
+  for(const id of [under,plain]){
+    if(!id) continue;
+    const ex=db.exams[id], f=FACTORY[map[id]];
+    if(f && (!ex.calib || !Object.keys(ex.calib).length)){
+      ex.calib=JSON.parse(JSON.stringify(f.calib));
+      ex.pageMode=2;                       // el examen real es de 2 páginas (1-4 / 5-10)
+      changed=true;
+    }
+  }
+  if(!db.modelMark && under && plain && FACTORY.modelMark){
+    db.modelMark={page:1, a:FACTORY.modelMark.a, b:FACTORY.modelMark.b, underId:under, plainId:plain};
+    changed=true;
+  }
+  if(changed){ try{ LS.setItem('examsDB', JSON.stringify(db)); }catch(e){} }
+}
 
 function blankExam(name){
   return { id:uid(), name:name||'Examen', nq:NQ, keys:new Array(NQ).fill('a'),
@@ -444,7 +502,7 @@ function fitCanvas(){
 function setPhoto(src){
   photos[curPage]=src; anchors=null; anchorsByPage[curPage]=null; mode='idle';
   showStage(); $('#video').style.display='none'; img.style.display='block';
-  img.onload = ()=>{ imgReady=true; fitCanvas(); setHint(''); drawOverlay(); };
+  img.onload = ()=>{ imgReady=true; fitCanvas(); setHint(''); drawOverlay(); maybeAutoProcess(false); };
   img.src = src;
 }
 // Muestra la foto ya guardada de una página (o vacía la zona si no hay)
@@ -493,7 +551,7 @@ function evtToImg(ev){
    el punto se fija donde se levanta el dedo. Permite calibrar con precisión
    aunque la foto se vea pequeña. Funciona en calibración y en referencias. */
 let loupe = {active:false, x:0, y:0};
-function placing(){ return mode==='calibrate' || mode==='anchors'; }
+function placing(){ return mode==='calibrate' || mode==='anchors' || mode==='markword'; }
 cv.addEventListener('pointerdown', ev=>{
   if(!imgReady || !placing()) return;
   ev.preventDefault();
@@ -511,6 +569,7 @@ cv.addEventListener('pointerup', ev=>{
   const p = {x:loupe.x, y:loupe.y}; loupe.active=false;
   if(mode==='calibrate') onCalTap(p);
   else if(mode==='anchors') onAnchorTap(p);
+  else if(mode==='markword') onWordTap(p);
   else drawOverlay();
 });
 cv.addEventListener('pointercancel', ()=>{ loupe.active=false; drawOverlay(); });
@@ -557,16 +616,22 @@ function calPrompt(){
 function onCalTap(p){
   calBuf.push(p);
   if(calBuf.length>=calCount()){
-    EX().calib[curPage]=pointsFromTaps(calBuf); saveDB();
+    const cal=pointsFromTaps(calBuf);
+    attachAutoData(cal, calBuf);          // parches para localizar las referencias solas
+    EX().calib[curPage]=cal; saveDB();
     mode='idle';
     const falta2 = EX().pageMode===2 && !pageCal(curPage===1?2:1);
-    setHint('✅ Calibración enviada y guardada'+pageTag()+'. '+(falta2 ? 'Ahora calibra la otra página.' : 'Ya puedes corregir: haz la foto y pulsa «Detectar».'));
+    setHint('✅ Calibración guardada'+pageTag()+' (con autocalibrado). '+(falta2 ? 'Ahora calibra la otra página.' : 'Ya puedes corregir: haz la foto y la app detecta sola.'));
     refreshCalStatus();
     setTimeout(()=>setHint(''),3000);
   }else setHint(calPrompt());
   drawOverlay();
 }
-$('#btnCalDel').onclick = ()=>{ EX().calib={}; saveDB(); anchors=null; refreshCalStatus(); drawOverlay(); };
+$('#btnCalDel').onclick = ()=>{
+  EX().calib={}; saveDB();
+  ensureFactory(DB);                 // los 2 modelos precargados recuperan la calibración de fábrica
+  anchors=null; refreshCalStatus(); drawOverlay();
+};
 function refreshCalStatus(){
   const m = EX().calib||{}, nm=EX().name; let txt;
   if(EX().pageMode===2){
@@ -574,9 +639,12 @@ function refreshCalStatus(){
     txt = `«${nm}»: pág. 1 ${c1?'✅':'⚠️ sin calibrar'} · pág. 2 ${c2?'✅':'⚠️ sin calibrar'}.`;
     if(c1||c2) txt += ' Elige la página (apartado 2), marca 2 referencias y pulsa «Detectar».';
   } else {
-    txt = m[1] ? '✅ «'+nm+'» calibrado. Marca 2 referencias en cada examen y pulsa «Detectar».'
+    txt = m[1] ? '✅ «'+nm+'» calibrado. Carga la foto y la app busca sola las referencias.'
                : '⚠️ «'+nm+'» sin calibrar. Puedes corregir a mano, o calibra para detección automática.';
   }
+  const cals=Object.values(m).filter(Boolean);
+  if(cals.length && cals.some(x=>!x.patches))
+    txt += ' ⚠️ Calibración antigua: <b>recalibra</b> para activar el autocalibrado (búsqueda automática de referencias).';
   $('#calStatus').innerHTML = txt;
   $('#btnAnchors').style.display = pageCal(curPage) ? 'inline-block' : 'none';
 }
@@ -596,31 +664,467 @@ function onAnchorTap(p){
   drawOverlay();
 }
 
+/* ============================================================
+   AUTOCALIBRADO: al calibrar se guardan 2 recortes (parches)
+   alrededor de las anclas; en cada foto nueva se localizan solos
+   por correlación cruzada normalizada (NCC) multi-escala.
+   Si la confianza es baja, se pide marcarlas a mano (respaldo).
+   ============================================================ */
+function attachAutoData(cal, taps){
+  try{
+    const A=taps[0], B=taps[taps.length-1];
+    // 3 testigos por la zona media: verifican la pareja de anclas (mediana:
+    // un círculo de boli encima de uno no invalida la verificación)
+    const ws=[0.35, 0.5, 0.65].map(f=>taps[Math.round(f*(taps.length-1))]);
+    const L=Math.hypot(B.x-A.x, B.y-A.y)||1;
+    // parche grande (0,07·L): un círculo de boli no domina el contenido
+    const half=Math.max(30, Math.round(L*0.07));
+    cal.patches=[cropPatch(A,half), cropPatch(B,half)].concat(ws.map(w=>cropPatch(w,half)));
+    cal.pHalf=half;
+    cal.masterDim=Math.max(img.naturalWidth, img.naturalHeight);
+    cal.A={x:Math.round(A.x), y:Math.round(A.y)};
+    cal.B={x:Math.round(B.x), y:Math.round(B.y)};
+    cal.W=ws.map(w=>({x:Math.round(w.x), y:Math.round(w.y)}));
+  }catch(e){ console.warn('Sin parches de auto-referencia:', e); }
+}
+function cropPatch(p, half){
+  const size=Math.min(120, 2*half);
+  const c=document.createElement('canvas'); c.width=size; c.height=size;
+  c.getContext('2d').drawImage(img, p.x-half, p.y-half, 2*half, 2*half, 0, 0, size, size);
+  return c.toDataURL('image/jpeg', 0.8);
+}
+function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+function median(arr){ const s=[...arr].sort((a,b)=>a-b); return s[Math.floor(s.length/2)]; }
+// Reducción por mitades sucesivas: evita el aliasing del drawImage directo
+// (con un solo paso, cada fila del examen cae con distinta fase de muestreo
+// y el NCC se vuelve poco fiable).
+function downCanvas(source, w, h){
+  let sw=source.naturalWidth||source.width, sh=source.naturalHeight||source.height;
+  let cur=source;
+  while(sw>=w*2 && sh>=h*2){
+    const nw=Math.max(w, Math.round(sw/2)), nh=Math.max(h, Math.round(sh/2));
+    const c=document.createElement('canvas'); c.width=nw; c.height=nh;
+    const cc=c.getContext('2d'); cc.imageSmoothingQuality='high';
+    cc.drawImage(cur, 0, 0, nw, nh);
+    cur=c; sw=nw; sh=nh;
+  }
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const cc=c.getContext('2d'); cc.imageSmoothingQuality='high';
+  cc.drawImage(cur, 0, 0, w, h);
+  return c;
+}
+// Luminancia de cualquier fuente dibujable, reescalada a w×h
+function grayOf(source, w, h){
+  const c=downCanvas(source, w, h);
+  const d=c.getContext('2d').getImageData(0,0,w,h).data, g=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) g[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+  return {g, w, h};
+}
+// Foto actual reducida a maxDim (lado mayor); .scale = factor respecto al original
+function grayOfImg(maxDim){
+  const W=img.naturalWidth, H=img.naturalHeight, sc=Math.min(1, maxDim/Math.max(W,H));
+  const o=grayOf(img, Math.max(1,Math.round(W*sc)), Math.max(1,Math.round(H*sc)));
+  o.scale=sc; return o;
+}
+/* NCC: busca la plantilla cuadrada tpl (lado t) dentro de im (opcionalmente en
+   una región); devuelve los topK picos separados entre sí (supresión no máxima). */
+function nccSearch(im, tpl, t, region, topK){
+  const {g,w,h}=im;
+  const x0=Math.max(0, Math.floor(region?region.x0:0)), y0=Math.max(0, Math.floor(region?region.y0:0));
+  const x1=Math.min(w-t, Math.ceil(region?region.x1:w)-t), y1=Math.min(h-t, Math.ceil(region?region.y1:h)-t);
+  if(x1<x0 || y1<y0) return [];
+  let tm=0; for(let i=0;i<t*t;i++) tm+=tpl[i]; tm/=t*t;
+  let tv=0; const tz=new Float32Array(t*t);
+  for(let i=0;i<t*t;i++){ tz[i]=tpl[i]-tm; tv+=tz[i]*tz[i]; }
+  const tn=Math.sqrt(tv)||1e-6, n=t*t;
+  // mapa completo de puntuaciones de la región
+  const W=x1-x0+1, H=y1-y0+1;
+  if(W<=0 || H<=0) return [];
+  const map=new Float32Array(W*H);
+  for(let y=y0;y<=y1;y++){
+    for(let x=x0;x<=x1;x++){
+      let s=0, s2=0, cr=0;
+      for(let j=0;j<t;j++){
+        const row=(y+j)*w+x, tro=j*t;
+        for(let i=0;i<t;i++){ const v=g[row+i]; s+=v; s2+=v*v; cr+=v*tz[tro+i]; }
+      }
+      const mu=s/n, va=s2-n*mu*mu;
+      map[(y-y0)*W+(x-x0)] = va>1e-3 ? cr/(Math.sqrt(va)*tn) : 0;
+    }
+  }
+  // máximos locales 3×3 (sin "picos que caminan"), luego separación mínima
+  const cands=[];
+  for(let yy=0;yy<H;yy++) for(let xx=0;xx<W;xx++){
+    const v=map[yy*W+xx]; if(v<=0.25) continue;
+    let isMax=true;
+    for(let dy=-1;dy<=1 && isMax;dy++) for(let dx=-1;dx<=1;dx++){
+      if(!dx && !dy) continue;
+      const nx=xx+dx, ny=yy+dy;
+      if(nx<0||ny<0||nx>=W||ny>=H) continue;
+      if(map[ny*W+nx]>v){ isMax=false; break; }
+    }
+    if(isMax) cands.push({x:x0+xx, y:y0+yy, score:v});
+  }
+  cands.sort((a,b)=>b.score-a.score);
+  const peaks=[], md=t*0.6;
+  for(const c of cands){
+    if(peaks.length>=(topK||3)) break;
+    if(peaks.every(p=>Math.abs(p.x-c.x)>=md || Math.abs(p.y-c.y)>=md)) peaks.push(c);
+  }
+  return peaks;
+}
+/* Transformación de semejanza (giro+escala+traslación) que lleva A0→A1 y B0→B1,
+   aplicada al punto P (para predecir dónde cae el parche testigo). */
+function simMap(A0,B0,A1,B1,P){
+  const v0x=B0.x-A0.x, v0y=B0.y-A0.y, v1x=B1.x-A1.x, v1y=B1.y-A1.y;
+  const den=v0x*v0x+v0y*v0y||1;
+  const rx=(v1x*v0x+v1y*v0y)/den, ry=(v1y*v0x-v1x*v0y)/den;
+  const dx=P.x-A0.x, dy=P.y-A0.y;
+  return { x:A1.x+rx*dx-ry*dy, y:A1.y+ry*dx+rx*dy };
+}
+/* Localiza las 2 anclas en la foto actual (con la calibración del examen dado,
+   por defecto el actual). Devuelve {anchors, conf} o null. */
+async function autoAnchors(page, exam){
+  const ex=exam||EX();
+  const cal=ex.calib && ex.calib[page];
+  if(!cal || !cal.patches || !cal.A || !cal.B) return null;
+  const ims=await Promise.all(cal.patches.map(loadImage));
+  const imA=ims[0], imB=ims[1];
+  const wPos=cal.W || (cal.M ? [cal.M] : []);     // compat con calibraciones de 1 testigo
+  const wImgs=ims.slice(2, 2+wPos.length);
+  const ratio0=Math.max(img.naturalWidth, img.naturalHeight)/cal.masterDim;
+  const dm=Math.hypot(cal.B.x-cal.A.x, cal.B.y-cal.A.y)||1;
+  const angM=Math.atan2(cal.B.y-cal.A.y, cal.B.x-cal.A.x);
+  // 1) búsqueda gruesa multi-escala. En un test las filas son casi idénticas
+  //    (a/b/c repetidos), así que se recogen MUCHOS candidatos y se generan
+  //    todas las parejas con geometría coherente (distancia y giro como en
+  //    la foto de calibración); el refinado decide cuál es la buena.
+  const co=grayOfImg(240);
+  const scales=[0.62, 0.78, 0.95, 1.15, 1.4];
+  const pairs=[];
+  const pushPair=(a,b,dExp,s,t,tWs)=>{
+    const d=Math.hypot(b.x-a.x, b.y-a.y);
+    if(!d || Math.abs(d/dExp-1)>0.22) return;              // distancia coherente
+    let dd=Math.abs(Math.atan2(b.y-a.y,b.x-a.x)-angM);
+    if(dd>Math.PI) dd=2*Math.PI-dd;
+    if(dd>0.45) return;                                     // giro < ~26°
+    // pre-testigo: en un test todas las filas se parecen, así que la pareja se
+    // puntúa sobre todo por si PREDICE bien dónde caen los parches testigo
+    // (mediana de los 3: un boli encima de uno no la descarta, pero una
+    // pareja desplazada de fila falla todos)
+    let wit=0.5;
+    if(tWs.length){
+      const sc3=tWs.map((tw,i)=>{
+        const pred=simMap(cal.A, cal.B, {x:a.x+t/2,y:a.y+t/2}, {x:b.x+t/2,y:b.y+t/2}, wPos[i]);
+        const r=nccSearch(co, tw, t, {x0:pred.x-t/2-2, y0:pred.y-t/2-2, x1:pred.x+t/2+2, y1:pred.y+t/2+2}, 1);
+        return r[0] ? r[0].score : 0;
+      });
+      wit=median(sc3);
+    }
+    pairs.push({sc: wit*0.6 + (a.score+b.score)/2*0.4 - 0.4*Math.abs(d/dExp-1) - 0.15*dd, a, b, s, t});
+  };
+  for(const s of scales){
+    const t=Math.round(2*cal.pHalf*ratio0*s*co.scale);
+    if(t<7 || t>Math.min(co.w,co.h)*0.5) continue;
+    const tA=grayOf(imA,t,t).g, tB=grayOf(imB,t,t).g;
+    const tWs=wImgs.map(im2=>grayOf(im2,t,t).g);
+    const dExp=dm*ratio0*s*co.scale;
+    const ex=Math.cos(angM)*dExp, ey=Math.sin(angM)*dExp;  // vector A→B esperado
+    const win=0.35*dExp+t;                                  // tolera giro ±20° y escala ±15%
+    // un ancla no tiene por qué ser un pico global (puede taparla una marca de
+    // boli): para cada candidato de UNA, se busca la OTRA donde la geometría
+    // de la calibración la predice, en ambos sentidos.
+    const pa=nccSearch(co,tA,t,null,12), pb=nccSearch(co,tB,t,null,12);
+    for(const a of pa){
+      const rb=nccSearch(co,tB,t,{x0:a.x+ex-win, y0:a.y+ey-win, x1:a.x+ex+win+t, y1:a.y+ey+win+t},4);
+      for(const b of rb) pushPair(a,b,dExp,s,t,tWs);
+    }
+    for(const b of pb){
+      const ra=nccSearch(co,tA,t,{x0:b.x-ex-win, y0:b.y-ey-win, x1:b.x-ex+win+t, y1:b.y-ey+win+t},4);
+      for(const a of ra) pushPair(a,b,dExp,s,t,tWs);
+    }
+  }
+  if(!pairs.length) return null;
+  pairs.sort((x,y)=>y.sc-x.sc);
+  // 2) refinado a media resolución: aquí los detalles («1.» vs «10.», la letra
+  //    exacta) sí se distinguen. Cada pareja candidata se verifica además con
+  //    el parche TESTIGO (punto medio de la calibración): una pareja correcta
+  //    lo predice donde toca; una desplazada de fila/columna, no.
+  const mi=grayOfImg(1100);
+  const k=mi.scale/co.scale;
+  // caché: muchas parejas comparten candidato o posición → no repetir ventanas
+  const tplCache={}, refCache={};
+  let windows=0;
+  const refWindow=(cxMi, cyMi, which, im2, tRq, winF)=>{
+    const ck=which+':'+tRq+':'+Math.round(cxMi/6)+':'+Math.round(cyMi/6);
+    if(refCache[ck]!==undefined) return refCache[ck];
+    const tk=which+':'+tRq;
+    if(!tplCache[tk]) tplCache[tk]=grayOf(im2,tRq,tRq).g;
+    const win=tRq*winF; windows++;
+    const r=nccSearch(mi, tplCache[tk], tRq,
+      {x0:cxMi-tRq/2-win, y0:cyMi-tRq/2-win, x1:cxMi+tRq/2+win, y1:cyMi+tRq/2+win}, 1);
+    const res=r[0] ? {x:r[0].x+tRq/2, y:r[0].y+tRq/2, score:r[0].score} : null;  // coords mi
+    refCache[ck]=res; return res;
+  };
+  let best=null;
+  const tried=new Set();
+  let scanned=0;
+  for(const cand of pairs){
+    if(scanned>=24 || windows>=46) break;        // presupuesto de cómputo
+    const dk=[cand.a.x,cand.a.y,cand.b.x,cand.b.y].map(v=>Math.round(v/3)).join(',');
+    if(tried.has(dk)) continue; tried.add(dk);   // misma pareja vista en otra escala
+    scanned++;
+    // escala exacta deducida de la propia pareja (mejor que la rejilla de escalas)
+    const dCo=Math.hypot(cand.b.x-cand.a.x, cand.b.y-cand.a.y);
+    const sEx=dCo/(dm*ratio0*co.scale);
+    const tRq=Math.max(12, Math.round(2*cal.pHalf*ratio0*sEx*mi.scale/3)*3);  // cuantizado (caché)
+    if(tRq>Math.min(mi.w,mi.h)*0.5) continue;
+    const RA=refWindow((cand.a.x+cand.t/2)*k, (cand.a.y+cand.t/2)*k, 'A', imA, tRq, 0.6);
+    const RB=refWindow((cand.b.x+cand.t/2)*k, (cand.b.y+cand.t/2)*k, 'B', imB, tRq, 0.6);
+    if(!RA || !RB) continue;
+    let conf=Math.min(RA.score, RB.score);
+    if(best && conf<=best.conf) continue;        // no puede mejorar: ahorra los testigos
+    if(wPos.length){
+      const sc3=wPos.map((wp,i)=>{
+        const pred=simMap(cal.A, cal.B, RA, RB, wp);       // coords master → coords mi
+        const RM=refWindow(pred.x, pred.y, 'W'+i, wImgs[i], tRq, 0.22);
+        return RM ? RM.score : 0;
+      });
+      conf=Math.min(conf, median(sc3));
+    }
+    if(!best || conf>best.conf)
+      best={conf, anchors:[{x:RA.x/mi.scale, y:RA.y/mi.scale}, {x:RB.x/mi.scale, y:RB.y/mi.scale}]};
+    if(best.conf>=0.75) break;                             // suficientemente seguro
+    if(scanned>=10 && best && best.conf>=0.5) break;       // bueno y ya muy explorado
+  }
+  return best;
+}
+function autoOn(){ return LS.getItem('autoDetect')!=='0'; }
+let autoBusy=false;
+/* Al cargar una foto: localiza referencias, decide el modelo (A/B) y detecta. */
+async function maybeAutoProcess(force){
+  if(autoBusy || mode!=='idle') return;
+  if(!force && !autoOn()) return;
+  const cal=pageCal(curPage);
+  if(!cal || !cal.patches){
+    if(force) setHint('Este examen se calibró con una versión anterior: recalibra (apartado 4) para activar el autocalibrado, o marca las referencias a mano.');
+    return;
+  }
+  autoBusy=true;
+  setHint('🤖 Buscando referencias automáticamente…');
+  await new Promise(r=>setTimeout(r,40));               // deja pintar el aviso
+  let res=null, srcId=DB.curId;
+  try{ res=await autoAnchors(curPage); }catch(e){ console.warn('autoAnchors:', e); }
+  // si no convence, prueba con la calibración del OTRO modelo (los textos de
+  // las opciones cambian entre modelos y los parches del modelo correcto
+  // casan mejor): esto ya es media detección de modelo
+  if((!res || res.conf<0.45) && DB.modelMark){
+    const other=DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId;
+    if(DB.exams[other] && other!==DB.curId){
+      let r2=null;
+      try{ r2=await autoAnchors(curPage, DB.exams[other]); }catch(e){}
+      if(r2 && (!res || r2.conf>res.conf)){ res=r2; srcId=other; }
+    }
+  }
+  autoBusy=false;
+  if(!res || res.conf<0.45){
+    setHint('🤖 No localizo las referencias con seguridad. Pulsa «📍 Marcar referencias» y colócalas tú.');
+    return;
+  }
+  if(srcId!==DB.curId && !keyMode) softSwitchExam(srcId);
+  anchors=res.anchors; anchorsByPage[curPage]=anchors;
+  let extra='';
+  if(DB.modelMark && !keyMode && curPage===(DB.modelMark.page||1)){
+    // decisión de modelo: manda el SUBRAYADO si la medición es fiable (vio la
+    // palabra); si no, se queda la elección por parches (srcId). Las anclas no
+    // cambian: ambos modelos comparten maquetación.
+    const mk=measureModelMark();
+    const target = (mk && mk.confident) ? (mk.underlined ? DB.modelMark.underId : DB.modelMark.plainId) : null;
+    if(target && DB.exams[target] && target!==DB.curId) softSwitchExam(target);
+    extra=' · 📋 '+EX().name;
+  }
+  setHint('🤖 Referencias OK (confianza '+Math.round(res.conf*100)+'%)'+extra);
+  drawOverlay();
+  setTimeout(()=>detect(curPage), 350);
+}
+/* Cambia de examen manteniendo foto, referencias y respuestas detectadas
+   (para el cambio automático de modelo A/B). Hereda calibración si falta,
+   porque ambos modelos comparten maquetación. */
+function softSwitchExam(id){
+  const prev=EX();
+  if(!DB.exams[id] || id===DB.curId) return;
+  DB.curId=id; const ex=EX();
+  for(const p in prev.calib){ if(!ex.calib[p]) ex.calib[p]=prev.calib[p]; }
+  ex.pageMode=prev.pageMode;
+  saveDB();
+  $('#modelPill').textContent=ex.name;
+  $('#cfgOk').value=ex.pointsOk; $('#cfgBad').value=ex.pointsBad;
+  syncExamSel(); renderKeys(); renderResults(); refreshCalStatus();
+}
+
+/* ============================================================
+   Detección de modelo (A/B): el profesor marca una vez la palabra
+   distintiva (p. ej. «Duración»); la app mide si está subrayada
+   buscando una línea horizontal continua bajo la palabra.
+   DB.modelMark = { page, a:{t,s}, b:{t,s}, underId, plainId }
+   (a/b = principio y fin de la palabra, relativos a las anclas)
+   ============================================================ */
+let wordBuf=[];
+function toRelAnchors(P){
+  const A=anchors[0], B=anchors[1];
+  const vx=B.x-A.x, vy=B.y-A.y, L=Math.hypot(vx,vy)||1;
+  const ux=vx/L, uy=vy/L, px=-uy, py=ux;
+  const dx=P.x-A.x, dy=P.y-A.y;
+  return { t:(dx*ux+dy*uy)/L, s:(dx*px+dy*py)/L };
+}
+function fromRelAnchors(rp){
+  const A=anchors[0], B=anchors[1];
+  const vx=B.x-A.x, vy=B.y-A.y, L=Math.hypot(vx,vy)||1;
+  const ux=vx/L, uy=vy/L, px=-uy, py=ux;
+  return { x:A.x+(rp.t*ux+rp.s*px)*L, y:A.y+(rp.t*uy+rp.s*py)*L };
+}
+function measureModelMark(){
+  const mm=DB.modelMark;
+  if(!mm || !anchors || anchors.length<2 || !imgReady) return null;
+  const P1=fromRelAnchors(mm.a), P2=fromRelAnchors(mm.b);
+  const A=anchors[0], B=anchors[1], L=Math.hypot(B.x-A.x,B.y-A.y)||1;
+  const len=Math.hypot(P2.x-P1.x, P2.y-P1.y); if(len<4) return null;
+  const ux=(P2.x-P1.x)/len, uy=(P2.y-P1.y)/len, px=-uy, py=ux;
+  const h0=0.030*L, h1=0.045*L, bandH=h0+h1;        // banda: palabra + zona del subrayado
+  const N=150, M=Math.max(14, Math.round(N*bandH/len));
+  const P0={x:P1.x-px*h0, y:P1.y-py*h0};
+  // transformación imagen→banda para muestrear el rectángulo orientado
+  const c=document.createElement('canvas'); c.width=N; c.height=M;
+  const cc=c.getContext('2d');
+  cc.setTransform(ux*N/len, px*M/bandH, uy*N/len, py*M/bandH,
+                  -(P0.x*ux+P0.y*uy)*N/len, -(P0.x*px+P0.y*py)*M/bandH);
+  cc.drawImage(img, 0, 0);
+  const dat=cc.getImageData(0,0,N,M).data;
+  let sum=0; const lum=new Float32Array(N*M);
+  for(let i=0;i<N*M;i++){ lum[i]=0.299*dat[i*4]+0.587*dat[i*4+1]+0.114*dat[i*4+2]; sum+=lum[i]; }
+  const thr=(sum/(N*M))*0.78;
+  // un subrayado = carrera horizontal continua de tinta en la mitad inferior;
+  // las letras sueltas del texto no producen carreras tan largas
+  let bestRun=0, bestRow=-1;
+  for(let j=Math.floor(M*0.45); j<M; j++){
+    let run=0, mx=0;
+    for(let i=0;i<N;i++){ if(lum[j*N+i]<thr){ run++; if(run>mx)mx=run; } else run=0; }
+    if(mx>bestRun){ bestRun=mx; bestRow=j; }
+  }
+  // ¿se VE la palabra? (tinta en la mitad superior de la banda); si la banda
+  // no cayó sobre la palabra (perspectiva), la medición no es fiable
+  let dark=0, nUp=0;
+  for(let j=0;j<Math.floor(M*0.5);j++) for(let i=0;i<N;i++){ nUp++; if(lum[j*N+i]<thr) dark++; }
+  const wordInk=nUp ? dark/nUp : 0;
+  const underlined=bestRun>=0.55*N;
+  const confident = underlined ? true : (wordInk>=0.03 && bestRun<=0.35*N);
+  return { underlined, confident, run:bestRun/N, wordInk:+wordInk.toFixed(3), row:bestRow };
+}
+function refreshMarkStatus(){
+  const mm=DB.modelMark, el=$('#markStatus');
+  if(!mm || !DB.exams[mm.underId] || !DB.exams[mm.plainId]){
+    el.textContent='Sin configurar: la app no distingue modelos sola (elige el examen a mano).';
+    return;
+  }
+  el.innerHTML='✅ Subrayada → <b>'+DB.exams[mm.underId].name+'</b> · sin subrayar → <b>'+DB.exams[mm.plainId].name+'</b>.';
+}
+$('#btnMarkWord').onclick = async ()=>{
+  if(!pageCal(curPage)){ alert('Primero calibra este examen (apartado 4).'); return; }
+  if(!imgReady){ alert('Necesitas una foto del examen en pantalla (apartado 2).'); focusStage(); return; }
+  if(!anchors || anchors.length<2){
+    const cal=pageCal(curPage);
+    if(cal && cal.patches){
+      setHint('🤖 Localizando referencias…');
+      try{ const r=await autoAnchors(curPage); if(r && r.conf>=0.45){ anchors=r.anchors; anchorsByPage[curPage]=anchors; } }catch(e){}
+      setHint('');
+    }
+    if(!anchors || anchors.length<2){ alert('Marca antes las 2 referencias («📍 Marcar referencias»).'); return; }
+  }
+  const selU=$('#mmUnder'), selP=$('#mmPlain');
+  selU.innerHTML=''; selP.innerHTML='';
+  DB.order.forEach(id=>{
+    for(const sel of [selU,selP]){
+      const o=document.createElement('option'); o.value=id; o.textContent=DB.exams[id].name; sel.appendChild(o);
+    }
+  });
+  const mm=DB.modelMark||{};
+  const under=DB.exams[mm.underId] ? mm.underId
+    : (DB.order.find(id=>/subray/i.test(DB.exams[id].name) && !/sin/i.test(DB.exams[id].name)) || DB.curId);
+  const plain=DB.exams[mm.plainId] ? mm.plainId
+    : (DB.order.find(id=>/sin\s*subray/i.test(DB.exams[id].name)) || DB.order.find(id=>id!==under) || under);
+  selU.value=under; selP.value=plain;
+  $('#dlgMark').showModal();
+};
+$('#mmGo').onclick = ()=>{
+  $('#dlgMark').close();
+  mode='markword'; wordBuf=[];
+  setHint('Palabra distintiva 1/2: mantén pulsado al PRINCIPIO de la palabra (p. ej. la «D» de Duración) y suelta');
+  drawOverlay(); focusStage();
+};
+function onWordTap(p){
+  wordBuf.push(p);
+  if(wordBuf.length<2){
+    setHint('Palabra distintiva 2/2: mantén pulsado al FINAL de la palabra (última letra) y suelta');
+    drawOverlay(); return;
+  }
+  mode='idle';
+  DB.modelMark={ page:curPage, a:toRelAnchors(wordBuf[0]), b:toRelAnchors(wordBuf[1]),
+                 underId:$('#mmUnder').value, plainId:$('#mmPlain').value };
+  saveDB(); refreshMarkStatus();
+  const mk=measureModelMark();
+  if(mk){
+    const ex=DB.exams[mk.underlined ? DB.modelMark.underId : DB.modelMark.plainId];
+    setHint('✅ Zona guardada. En esta foto la palabra está '+(mk.underlined?'SUBRAYADA':'SIN subrayar')+
+            (ex ? ' → '+ex.name : '')+' (línea del '+Math.round(mk.run*100)+'% del ancho).');
+  } else setHint('✅ Zona guardada.');
+  setTimeout(()=>setHint(''), 5000);
+  drawOverlay();
+}
+$('#btnMarkDel').onclick = ()=>{ delete DB.modelMark; saveDB(); refreshMarkStatus(); };
+$('#autoCal').checked = autoOn();
+$('#autoCal').onchange = e=> LS.setItem('autoDetect', e.target.checked ? '1' : '0');
+
 /* ---------- Detección automática de marcas ---------- */
 $('#btnDetect').onclick = ()=>{
   if(!imgReady){ alert('Toma una foto del examen primero.'); return; }
   if(!pageCal(curPage)){ alert('Para detectar, calibra '+(EX().pageMode===2?'la página '+curPage+' de ':'')+'este examen (apartado 4).'); return; }
-  if(!anchors || anchors.length<2){ $('#btnAnchors').onclick(); return; }
+  if(!anchors || anchors.length<2){
+    const cal=pageCal(curPage);
+    if(cal && cal.patches){ maybeAutoProcess(true); return; }   // intenta el autocalibrado
+    $('#btnAnchors').onclick(); return;
+  }
   detect(curPage);
 };
 $('#sens').oninput = e=>{ $('#sensVal').textContent=(+e.target.value).toFixed(2).replace('.',','); if(anchors && anchors.length>=2) detect(curPage); };
 
 function inkScore(buf, w, h, cx, cy, r){
-  // fracción de píxeles oscuros en el disco (cx,cy,r). Umbral relativo a la luminancia local.
-  let sum=0, n=0, vals=[];
-  const x0=Math.max(0,(cx-r)|0), x1=Math.min(w-1,(cx+r)|0), y0=Math.max(0,(cy-r)|0), y1=Math.min(h-1,(cy+r)|0);
-  const r2=r*r;
+  // fracción de píxeles oscuros en una ELIPSE centrada en la letra: más ancha
+  // que alta, porque el alumno rodea la letra con un círculo/elipse cuyo
+  // trazo cae a los LADOS (un disco pequeño se lo perdía).
+  const rx=r*1.7, ry=r*1.0;
+  let sum=0, n=0; const vals=[];
+  const x0=Math.max(0,(cx-rx)|0), x1=Math.min(w-1,(cx+rx)|0), y0=Math.max(0,(cy-ry)|0), y1=Math.min(h-1,(cy+ry)|0);
   for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
-    const dx=x-cx, dy=y-cy; if(dx*dx+dy*dy>r2) continue;
+    const dx=(x-cx)/rx, dy=(y-cy)/ry; if(dx*dx+dy*dy>1) continue;
     const idx=(y*w+x)*4; const L=0.299*buf[idx]+0.587*buf[idx+1]+0.114*buf[idx+2];
     vals.push(L); sum+=L; n++;
   }
   if(!n) return 0;
   const mean=sum/n;
-  // umbral = 70% de la media local → cuenta tinta (texto + círculo a mano)
+  // umbral = 72% de la media local → cuenta tinta (texto + círculo a mano)
   const thr=mean*0.72; let dark=0;
   for(const L of vals) if(L<thr) dark++;
   return dark/n;
+}
+/* Suelo adaptativo: la mayoría de las opciones de una página NO están marcadas,
+   así que el percentil 25 de las puntuaciones ≈ "letra impresa sin marca".
+   El suelo se pone por encima de esa base (funciona con boli fino o grueso). */
+let lastFloor=0.14;
+function adaptiveFloor(scores){
+  if(!scores.length) return 0.14;
+  const s=[...scores].sort((a,b)=>a-b);
+  const base=s[Math.floor(s.length*0.25)];
+  return Math.max(0.045, Math.min(0.2, base*1.35));
 }
 function detect(page){
   const pts = mappedPoints(page); if(!pts) return;
@@ -628,13 +1132,20 @@ function detect(page){
   const cc=c.getContext('2d'); cc.drawImage(img,0,0);
   const data = cc.getImageData(0,0,c.width,c.height).data;
   const sens = +$('#sens').value, qs=pageQuestions(page), kMode=keyMode;
+  // 1ª pasada: puntuación de tinta de cada opción de la página
   for(let lq=0; lq<qs.length; lq++){
     const q=qs[lq];
-    const sc = [0,1,2].map(k=>inkScore(data,c.width,c.height, pts[lq*3+k].x, pts[lq*3+k].y, pts[lq*3+k].r));
-    lastScores[q] = sc;                                           // guardamos para revisión/aprendizaje
+    lastScores[q] = [0,1,2].map(k=>inkScore(data,c.width,c.height, pts[lq*3+k].x, pts[lq*3+k].y, pts[lq*3+k].r));
+  }
+  // suelo adaptativo según la página (boli fino o grueso)
+  const floor=adaptiveFloor(qs.map(q=>lastScores[q]).flat());
+  lastFloor=floor;
+  // 2ª pasada: decisión por pregunta
+  for(let lq=0; lq<qs.length; lq++){
+    const q=qs[lq];
+    const sc=lastScores[q];
     const order=[0,1,2].sort((a,b)=>sc[b]-sc[a]);
     const best=sc[order[0]], second=sc[order[1]];
-    const floor=0.14; // por debajo, se considera sin marca apreciable
     if(kMode){
       // definir SOLUCIONES: una única respuesta por pregunta (la más marcada)
       if(best>=floor) EX().keys[q]=OPTS[order[0]];
@@ -662,7 +1173,7 @@ function detect(page){
 function needsReview(q){
   const sc = lastScores[q]; if(!sc) return false;
   if(answers[q]==='doubt') return true;
-  const o=[0,1,2].sort((a,b)=>sc[b]-sc[a]); const best=sc[o[0]], second=sc[o[1]], floor=0.14;
+  const o=[0,1,2].sort((a,b)=>sc[b]-sc[a]); const best=sc[o[0]], second=sc[o[1]], floor=lastFloor;
   if(best>=floor && best < floor*1.6) return true;          // marca tenue → poco clara
   if(best>=floor && second>=floor && best < second*1.9) return true; // dos marcas cercanas
   return false;
@@ -695,6 +1206,11 @@ function drawOverlay(){
   if(mode==='calibrate'){
     ctx.fillStyle='#29b6f6';
     calBuf.forEach((p,i)=>{ dot(p.x,p.y,8,'#29b6f6'); ctx.fillStyle='#fff'; });
+    drawLoupe();
+    return;
+  }
+  if(mode==='markword'){
+    wordBuf.forEach(p=>dot(p.x,p.y,8,'#ab47bc'));
     drawLoupe();
     return;
   }
@@ -981,7 +1497,7 @@ $('#btnReset').onclick = ()=>{
   renderResults(); refreshCalStatus(); ctx.clearRect(0,0,cv.width,cv.height);
 };
 
-syncExamSel(); setExam(DB.curId);
+syncExamSel(); setExam(DB.curId); refreshMarkStatus();
 $('#smpCount').textContent = loadSamples().length;
 loadModel(true);   // descarga el modelo entrenado (si existe); si no, usa la heurística
 

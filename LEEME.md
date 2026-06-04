@@ -20,6 +20,40 @@ Puedes editarlas tocando las letras del apartado 1.
 
 ---
 
+## 🤖 v3.0 — Calibrado de fábrica, autocalibrado y detección de modelo A/B
+
+**Los dos modelos precargados ya vienen calibrados de fábrica** (a partir del PDF
+del examen): no hace falta calibrar nada ni marcar referencias.
+
+Flujo normal de corrección:
+
+1. Haz la **foto de la página 1** del examen del alumno (encuadra el folio
+   razonablemente recto).
+2. La app **localiza sola las referencias** (autocalibrado por correlación con
+   parches guardados), **detecta el modelo** (comprueba si «Duración» está
+   subrayada y, además, compara qué modelo casa mejor con la foto) y **se cambia
+   sola** al modelo correcto.
+3. Detecta las respuestas, te avisa de que **des la vuelta** y repites con la
+   página 2. Lo dudoso va al **diálogo de revisión** (cada respuesta que
+   confirmas entrena el modelo).
+
+Si el autocalibrado no localiza las referencias con seguridad (foto muy girada,
+borrosa, con poca luz…), te lo dice y puedes pulsar **«📍 Marcar referencias»**
+para colocarlas tú (el respaldo manual de siempre). El interruptor
+**«🤖 Auto»** del apartado 4 desactiva el proceso automático si prefieres el
+modo manual.
+
+- **Calibrar este examen** (apartado 4) sigue disponible para exámenes nuevos:
+  al calibrar se guardan también los parches del autocalibrado.
+- **Borrar calibración** en los dos modelos precargados **restaura la de
+  fábrica**.
+- **Detección de modelo (A/B)**: para tus propios exámenes con dos modelos,
+  marca una vez la palabra distintiva (p. ej. «Duración») con
+  **«🔤 Marcar palabra distintiva»** y di qué examen corresponde a subrayada /
+  sin subrayar.
+
+---
+
 ## 🗂️ Gestionar exámenes (apartado 1)
 
 No estás limitado a los dos modelos precargados. En el apartado 1 puedes:
