@@ -243,7 +243,7 @@
   </div>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, enderezado seguro y detección de modelo · v3.3
+    Corrector tipo test · cámara en vivo con zoom automático, enderezado seguro y detección de modelo · v3.4
   </p>
 </main>
 
@@ -614,7 +614,9 @@ async function liveTick(){
   if(liveMode) liveTimer=setTimeout(liveTick, liveLockedPage?350:250);
 }
 async function liveLock(){
-  const otherExam = DB.modelMark
+  // si ya hay una página corregida de este examen, el modelo no se toca
+  const lockModel = pagesDetected.size>0;
+  const otherExam = (!lockModel && DB.modelMark)
     ? (DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId) : null;
   let res=null, srcId=DB.curId, pageUsed=curPage;
   const tryOne=async(page, exam, id)=>{
@@ -634,7 +636,7 @@ async function liveLock(){
   if(pageUsed!==curPage){ curPage=pageUsed; syncPageSeg(); refreshCalStatus(); }
   anchors=res.anchors; anchorsByPage[curPage]=anchors;
   pageKnots[curPage]=(res.fit && res.fit.length>=3) ? {examId:DB.curId, knots:res.fit} : null;
-  if(DB.modelMark && curPage===(DB.modelMark.page||1)){
+  if(DB.modelMark && !lockModel && curPage===(DB.modelMark.page||1)){
     let dec=null; try{ dec=await decideModel(); }catch(e){}
     if(dec && DB.exams[dec.targetId] && dec.targetId!==DB.curId){
       softSwitchExam(dec.targetId);
@@ -1302,7 +1304,10 @@ async function maybeAutoProcess(force){
   }
   setHint('🤖 Buscando referencias automáticamente…');
   await new Promise(r=>setTimeout(r,40));               // deja pintar el aviso
-  const otherExam = DB.modelMark
+  // si YA se corrigió una página de ESTE examen, el modelo queda BLOQUEADO:
+  // la otra página es del mismo alumno (no se vuelve a decidir el modelo)
+  const lockModel = pagesDetected.size>0;
+  const otherExam = (!lockModel && DB.modelMark)
     ? (DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId) : null;
   let res=null, srcId=DB.curId, pageUsed=curPage;
   try{ res=await autoAnchors(curPage); }catch(e){ console.warn('autoAnchors:', e); }
@@ -1354,7 +1359,7 @@ async function maybeAutoProcess(force){
   // puntos de apoyo (anclas + testigos) → mapeo por tramos de esta página
   pageKnots[curPage] = (res.fit && res.fit.length>=3) ? {examId:srcId, knots:res.fit} : null;
   let extra='';
-  if(DB.modelMark && !keyMode && curPage===(DB.modelMark.page||1)){
+  if(DB.modelMark && !keyMode && !lockModel && curPage===(DB.modelMark.page||1)){
     // decisión de modelo (parche de zona por modelo; subrayado de respaldo);
     // si no hay decisión fiable se queda la elección por parches de anclas
     // (srcId). Las anclas no cambian: ambos modelos comparten maquetación.
@@ -1835,7 +1840,12 @@ function syncExamSel(){
   const sel=$('#examSel'); sel.innerHTML='';
   DB.order.forEach(id=>{ const o=document.createElement('option'); o.value=id; o.textContent=DB.exams[id].name; if(id===DB.curId)o.selected=true; sel.appendChild(o); });
 }
-$('#examSel').onchange = e=> setExam(e.target.value);
+$('#examSel').onchange = e=>{
+  // si ya hay un examen a medio corregir, cambiar de modelo NO borra el
+  // trabajo (solo cambia las soluciones); si no, cambio completo
+  if(pagesDetected.size>0 || Object.keys(photos).some(p=>photos[p])) softSwitchExam(e.target.value);
+  else setExam(e.target.value);
+};
 
 /* Puntuación configurable por examen (el profesor define cuánto resta un fallo) */
 $('#cfgOk').onchange = ()=>{ const v=parseFloat($('#cfgOk').value); if(!isNaN(v)&&v>=0){ EX().pointsOk=v; saveDB(); renderResults(); } };
