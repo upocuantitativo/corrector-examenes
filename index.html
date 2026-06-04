@@ -146,7 +146,7 @@
         <button data-cp="2">Pág. 2 · preg. 5–10</button>
       </div>
       <div id="firstWrap" style="margin-top:8px; display:none">
-        <label class="small">¿Qué cara fotografías PRIMERO? (para el modo en vivo con auto-captura)</label>
+        <label class="small">¿Qué cara corriges PRIMERO? (se aplica al modo en vivo con auto-captura y al manual/voz)</label>
         <div class="seg" id="firstSeg" style="margin-top:4px">
           <button data-fp="1" class="on">Primero pág. 1</button>
           <button data-fp="2">Primero pág. 2</button>
@@ -268,7 +268,7 @@
   </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, dictado por caras con «vuelta» y auto-captura en vivo · v4.0
+    Corrector tipo test · cámara en vivo con zoom automático, dictado por caras con «vuelta» y auto-captura en vivo · v4.1
   </p>
 </main>
 
@@ -2196,6 +2196,12 @@ function syncPageSeg(){ document.querySelectorAll('#pageSeg button').forEach(b=>
 /* qué cara se corrige PRIMERO (auto-captura en vivo y modo manual/voz):
    es una decisión FÍSICA de cómo está la pila de exámenes → global */
 function firstPage(){ return LS.getItem('firstPage')==='2' ? 2 : 1; }
+// REVERSIÓN (una sola vez): restablece el orden a «primero pág. 1»; a partir
+// de aquí manda únicamente lo que el examinador elija en este selector.
+if(LS.getItem('firstPageReset')!=='1'){
+  LS.setItem('firstPage','1');
+  LS.setItem('firstPageReset','1');
+}
 function syncFirstSeg(){
   $('#firstWrap').style.display = EX().pageMode===2 ? 'block' : 'none';
   document.querySelectorAll('#firstSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.fp===firstPage()));
