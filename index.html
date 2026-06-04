@@ -268,7 +268,7 @@
   </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, corrección por voz silenciosa y auto-captura en vivo · v3.9
+    Corrector tipo test · cámara en vivo con zoom automático, dictado por caras con «vuelta» y auto-captura en vivo · v4.0
   </p>
 </main>
 
@@ -609,10 +609,31 @@ $('#btnSinFoto').onclick = ()=>{ $('#stage').classList.remove('show'); imgReady=
    pregunta (a/b/c/blanco) con marcador en vivo de ✔/✘.
    En ordenador: teclas 1=a, 2=b, 3=c, 0=blanco, ←=atrás.
    ============================================================ */
-let mnIdx=-1;
+let mnIdx=-1, mnOrder=[];
+/* Orden de corrección: el ORDEN FÍSICO del examen, según la cara que el
+   examinador eligió corregir primero (firstPage). Con «primero pág. 2» se
+   dictan/marcan las preguntas 5-10 y, tras la VUELTA, las 1-4. */
+function buildManualOrder(){
+  if(EX().pageMode===2){
+    const p1=pageQuestions(1), p2=pageQuestions(2);
+    return firstPage()===2 ? p2.concat(p1) : p1.concat(p2);
+  }
+  return Array.from({length:NQ},(_,i)=>i);
+}
+function mnFirstBlockLen(){
+  return EX().pageMode===2 ? pageQuestions(firstPage()).length : NQ;
+}
+function startQuestions(){ mnOrder=buildManualOrder(); mnIdx=0; renderManual(); }
 function manualAnswer(v){
-  answers[mnIdx]= v==='null' ? null : v;
+  const q=mnOrder[mnIdx];
+  answers[q]= v==='null' ? null : v;
   mnIdx++; renderResults(); renderManual();
+}
+/* «vuelta»: se gira la hoja; lo no dictado de la primera cara queda en blanco */
+function manualVuelta(){
+  if(EX().pageMode!==2) return;
+  const half=mnFirstBlockLen();
+  if(mnIdx<half){ mnIdx=half; renderResults(); renderManual(); }
 }
 function renderManual(){
   const b=$('#mnBody'), t=$('#mnTitle');
@@ -623,7 +644,7 @@ function renderManual(){
       const btn=document.createElement('button');
       btn.className='wide'; btn.style.marginTop='8px'; btn.style.padding='14px';
       btn.textContent=(i<9 ? (i+1)+' · ' : '')+DB.exams[id].name;
-      btn.onclick=()=>{ if(id!==DB.curId) softSwitchExam(id); mnIdx=0; renderManual(); };
+      btn.onclick=()=>{ if(id!==DB.curId) softSwitchExam(id); startQuestions(); };
       b.appendChild(btn);
     });
     const k=document.createElement('p');
@@ -680,7 +701,11 @@ function renderManual(){
     return;
   }
   const g=grade();
-  t.textContent='Pregunta '+(mnIdx+1)+' de '+NQ;
+  if(!mnOrder.length) mnOrder=buildManualOrder();
+  const q=mnOrder[mnIdx];
+  const enPrimera = mnIdx < mnFirstBlockLen();
+  t.textContent='Pregunta '+(q+1)+' de '+NQ+
+    (EX().pageMode===2 ? ' · pág. '+pageOf(q) : '');
   b.innerHTML=
     '<div class="row" style="justify-content:center; gap:10px; margin:4px 0 10px">'+
       ['a','b','c'].map(o=>'<button class="mnopt" data-v="'+o+'">'+o+'</button>').join('')+
@@ -688,6 +713,7 @@ function renderManual(){
     '<div class="row" style="justify-content:center; gap:10px">'+
       '<button class="ghost mnoptx" data-v="null">En blanco (0)</button>'+
       '<button class="ghost mnoptx" data-v="doubt" style="color:var(--duda)">Duda</button>'+
+      (EX().pageMode===2 && enPrimera ? '<button class="ghost mnoptx" id="mnVuelta">🔄 Vuelta</button>' : '')+
     '</div>'+
     '<div class="row" style="justify-content:space-between; margin-top:12px; align-items:center">'+
       '<button class="ghost" id="mnBack">↩</button>'+
@@ -695,8 +721,9 @@ function renderManual(){
       '<button class="ghost" id="mnClose">✕</button>'+
     '</div>'+
     '<p class="muted" style="margin:8px 0 0; font-size:11px; text-align:center">Teclado: 1=a · 2=b · 3=c · 0=blanco · ←=atrás'+
-      (voiceOn?' · 🎤 di: «a», «be», «ce» o «no»':'')+'</p>';
-  b.querySelectorAll('.mnopt,.mnoptx').forEach(btn=> btn.onclick=()=>manualAnswer(btn.dataset.v));
+      (voiceOn?' · 🎤 di: «a», «be», «ce», «no»'+(EX().pageMode===2&&enPrimera?' o «vuelta»':''):'')+'</p>';
+  b.querySelectorAll('.mnopt,.mnoptx').forEach(btn=>{ if(btn.dataset.v) btn.onclick=()=>manualAnswer(btn.dataset.v); });
+  const mv=$('#mnVuelta'); if(mv) mv.onclick=manualVuelta;
   $('#mnBack').onclick=()=>{ if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual(); };
   $('#mnClose').onclick=()=>{ $('#dlgManual').close(); renderResults(); };
 }
@@ -717,7 +744,7 @@ document.addEventListener('keydown', ev=>{
       ev.preventDefault();
       const id=DB.order[i];
       if(id!==DB.curId) softSwitchExam(id);
-      mnIdx=0; renderManual();
+      startQuestions();
     }
     return;
   }
@@ -749,7 +776,7 @@ function voiceModel(w){
   if(!n || !DB.order[n-1]) return false;
   const id=DB.order[n-1];
   if(id!==DB.curId) softSwitchExam(id);
-  mnIdx=0; renderManual();
+  startQuestions();
   return true;
 }
 function handleVoice(txt){
@@ -769,6 +796,7 @@ function handleVoice(txt){
       if(mnIdx===0 && prev>=NQ) resetOnVoiceChain();
       continue;
     }
+    if(w==='vuelta'){ manualVuelta(); continue; }   // gira la hoja (orden elegido)
     const v={'a':'a','ha':'a',
              'be':'b','b':'b','ve':'b','uve':'b',
              'ce':'c','c':'c','se':'c','sé':'c',
@@ -2165,14 +2193,15 @@ function glyph(p,ch,col){ const s=Math.max(22,p.r*1.6); ctx.font='bold '+s+'px s
 
 /* ---------- Páginas: selector ---------- */
 function syncPageSeg(){ document.querySelectorAll('#pageSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.cp===curPage)); }
-/* qué cara se fotografía primero (auto-captura en vivo) */
-function firstPage(){ return EX().firstPage===2 ? 2 : 1; }
+/* qué cara se corrige PRIMERO (auto-captura en vivo y modo manual/voz):
+   es una decisión FÍSICA de cómo está la pila de exámenes → global */
+function firstPage(){ return LS.getItem('firstPage')==='2' ? 2 : 1; }
 function syncFirstSeg(){
   $('#firstWrap').style.display = EX().pageMode===2 ? 'block' : 'none';
   document.querySelectorAll('#firstSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.fp===firstPage()));
 }
 document.querySelectorAll('#firstSeg button').forEach(b=> b.onclick=()=>{
-  EX().firstPage=+b.dataset.fp; saveDB(); syncFirstSeg();
+  LS.setItem('firstPage', b.dataset.fp); syncFirstSeg();
 });
 function setPageMode(pm){
   anchorsByPage[curPage]=anchors;                 // guarda referencias de la página que dejamos
