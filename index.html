@@ -268,7 +268,7 @@
   </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, auto-captura en vivo y pregunta de modelo · v3.7
+    Corrector tipo test · cámara en vivo con zoom automático, corrección por voz, auto-captura en vivo y pregunta de modelo · v3.8
   </p>
 </main>
 
@@ -295,8 +295,11 @@
 
 <!-- Modo manual rápido: modelo → pregunta a pregunta → resultado -->
 <dialog id="dlgManual">
-  <h3 id="mnTitle" style="margin:0 0 10px; text-align:center">Corrección manual</h3>
-  <div id="mnBody"></div>
+  <div style="display:flex; align-items:center; gap:8px">
+    <h3 id="mnTitle" style="flex:1; margin:0; text-align:center">Corrección manual</h3>
+    <button id="mnVoice" class="ghost" style="padding:7px 11px; font-size:17px" title="Corregir por voz">🎤</button>
+  </div>
+  <div id="mnBody" style="margin-top:10px"></div>
 </dialog>
 
 <!-- Diálogo de configuración de la detección de modelo A/B -->
@@ -668,6 +671,8 @@ function renderManual(){
     $('#mnNext').onclick=()=>{ resetExamState(); mnIdx=-1; renderManual(); };  // cada alumno: su modelo
     $('#mnDone').onclick=()=>{ $('#dlgManual').close(); renderResults();
       document.querySelector('#card-result').scrollIntoView({behavior:'smooth'}); };
+    // con la voz activa, DICE el resultado en alto
+    if(voiceOn) speakText(g.ac+' aciertos, '+g.fa+' fallos. Nota: '+fmt(g.nota)+'. Di «siguiente» para otro alumno.');
     return;
   }
   const g=grade();
@@ -685,7 +690,8 @@ function renderManual(){
       '<span class="muted">✔ '+g.ac+' · ✘ '+g.fa+'</span>'+
       '<button class="ghost" id="mnClose">✕</button>'+
     '</div>'+
-    '<p class="muted" style="margin:8px 0 0; font-size:11px; text-align:center">Teclado: 1=a · 2=b · 3=c · 0=blanco · ←=atrás</p>';
+    '<p class="muted" style="margin:8px 0 0; font-size:11px; text-align:center">Teclado: 1=a · 2=b · 3=c · 0=blanco · ←=atrás'+
+      (voiceOn?' · 🎤 di: «a», «be», «ce» o «no»':'')+'</p>';
   b.querySelectorAll('.mnopt,.mnoptx').forEach(btn=> btn.onclick=()=>manualAnswer(btn.dataset.v));
   $('#mnBack').onclick=()=>{ if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual(); };
   $('#mnClose').onclick=()=>{ $('#dlgManual').close(); renderResults(); };
@@ -721,6 +727,89 @@ document.addEventListener('keydown', ev=>{
     ev.preventDefault(); if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual();
   }
 });
+
+/* ---------- Corrección por VOZ (Web Speech API · Chrome/Android) ----------
+   Con el 🎤 activo, el profesor dice el modelo («uno» / «dos») y después las
+   respuestas seguidas: «a», «be», «ce» o «no» (en blanco). También valen
+   «uno/dos/tres/cero», «duda», «atrás» y «siguiente» (otro alumno). Al
+   terminar, la app DICE el resultado en voz alta. */
+let recog=null, voiceOn=false, speaking=false;
+function updateVoiceBtn(){
+  const b=$('#mnVoice'); if(!b) return;
+  b.style.background = voiceOn ? 'var(--ok)' : 'transparent';
+  b.style.color = voiceOn ? '#fff' : 'var(--txt2)';
+  b.textContent = voiceOn ? '🎤 escuchando' : '🎤';
+}
+function speakText(t){
+  if(!window.speechSynthesis) return;
+  // pausa el micro mientras habla, para no oírse a sí misma
+  speaking=true; try{ recog && recog.stop(); }catch(e){}
+  const done=()=>{
+    if(!speaking) return;
+    speaking=false;
+    if(voiceOn){ try{ recog && recog.start(); }catch(e){} }
+  };
+  const u=new SpeechSynthesisUtterance(t);
+  u.lang='es-ES';
+  u.onend=done; u.onerror=done;
+  setTimeout(done, 7000);                        // vigilante: nunca quedarse mudo-sordo
+  try{ speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){ done(); }
+}
+function handleVoice(txt){
+  if(!$('#dlgManual').open) return;
+  const words=txt.toLowerCase().split(/[\s,.;:!?]+/).filter(Boolean);
+  for(const w of words){
+    if(!$('#dlgManual').open) break;
+    if(mnIdx<0){
+      if(w==='modelo'||w==='el') continue;
+      const n={'uno':1,'1':1,'dos':2,'2':2,'tres':3,'3':3,'cuatro':4,'4':4}[w];
+      if(n && DB.order[n-1]){
+        const id=DB.order[n-1];
+        if(id!==DB.curId) softSwitchExam(id);
+        mnIdx=0; renderManual();
+        speakText('Modelo elegido. Pregunta uno.');
+      }
+      continue;
+    }
+    if(mnIdx>=NQ){
+      if(w==='siguiente'||w==='otro'){ resetExamState(); mnIdx=-1; renderManual(); speakText('Di el modelo.'); }
+      continue;
+    }
+    if(w==='atrás'||w==='atras'){ if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual(); continue; }
+    const v={'a':'a','ha':'a','uno':'a','1':'a',
+             'be':'b','b':'b','ve':'b','uve':'b','dos':'b','2':'b',
+             'ce':'c','c':'c','se':'c','sé':'c','tres':'c','3':'c',
+             'no':'null','blanco':'null','nada':'null','cero':'null','0':'null',
+             'duda':'doubt'}[w];
+    if(v!==undefined) manualAnswer(v);
+  }
+}
+function startVoice(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ alert('Este navegador no soporta dictado por voz (usa Chrome).'); return; }
+  recog=new SR();
+  recog.lang='es-ES'; recog.continuous=true; recog.interimResults=false;
+  recog.onresult=ev=>{
+    for(let i=ev.resultIndex;i<ev.results.length;i++)
+      if(ev.results[i].isFinal) handleVoice(ev.results[i][0].transcript);
+  };
+  recog.onend=()=>{ if(voiceOn && !speaking){ try{ recog.start(); }catch(e){} } };  // Chrome corta solo
+  recog.onerror=e=>{
+    if(e.error==='not-allowed'){ voiceOn=false; updateVoiceBtn(); alert('Permiso de micrófono denegado.'); }
+  };
+  try{
+    recog.start(); voiceOn=true; updateVoiceBtn();
+    speakText(mnIdx<0 ? 'Di el modelo: uno o dos.' : 'Di las respuestas: a, be, ce o no.');
+  }catch(e){}
+}
+function stopVoice(){
+  voiceOn=false; speaking=false;
+  try{ recog && recog.stop(); }catch(e){}
+  try{ window.speechSynthesis && speechSynthesis.cancel(); }catch(e){}
+  updateVoiceBtn();
+}
+$('#mnVoice').onclick=()=>{ voiceOn ? stopVoice() : startVoice(); };
+$('#dlgManual').addEventListener('close', stopVoice);
 
 /* ============================================================
    CÁMARA EN VIVO con corrección superpuesta (sin capturar):
