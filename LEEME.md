@@ -54,6 +54,27 @@ modo manual.
 
 ---
 
+## 🎥 v3.2 — Cámara en vivo: corrección superpuesta sin capturar
+
+Pulsa **«🎥 En vivo (corrige sin capturar)»** (requiere usar la app desde la
+web publicada o el APK, que van por HTTPS):
+
+1. Apunta al examen con el folio entero y razonablemente recto.
+2. La app **se engancha sola** (busca las referencias, reconoce la página y el
+   modelo) y desde ese momento pinta **✔/✘/? superpuestos sobre el vídeo**,
+   refrescándose ~1 vez por segundo mientras mueves el móvil.
+3. Cuando lo veas bien, pulsa **«📸 Capturar fotograma»**: congela esa imagen
+   y pasa al flujo normal (dudas guiadas, nota y muestras de aprendizaje).
+
+Si pierdes el folio del encuadre, la app vuelve a buscarlo sola. El botón se
+convierte en **«⏹ Parar cámara»** mientras está activa.
+
+Además, el **enderezado de foto es ahora seguro**: si al enderezar la imagen
+saliera torcida (esquinas mal detectadas), la app **vuelve sola a la foto
+original** y reintenta sobre ella — nunca te quedas con la imagen retorcida.
+
+---
+
 ## 🗂️ Gestionar exámenes (apartado 1)
 
 No estás limitado a los dos modelos precargados. En el apartado 1 puedes:

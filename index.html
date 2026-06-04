@@ -117,7 +117,7 @@
     <div class="row">
       <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none">
       <button id="btnFoto">📷 Tomar / elegir foto</button>
-      <button id="btnLive" class="sec" style="display:none">🎥 Cámara en vivo</button>
+      <button id="btnLive" class="sec" style="display:none">🎥 En vivo (corrige sin capturar)</button>
       <button id="btnSinFoto" class="ghost">Corregir sin foto</button>
     </div>
 
@@ -243,7 +243,7 @@
   </div>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · enderezado de foto, calibrado de fábrica y detección de modelo · v3.1
+    Corrector tipo test · cámara en vivo, enderezado seguro y detección de modelo · v3.2
   </p>
 </main>
 
@@ -435,7 +435,8 @@ function pageCal(page){ const c=EX().calib; return c && c[page]; }
 function setExam(id){
   if(!DB.exams[id]) return;
   DB.curId=id; saveDB();
-  answers=newAnswers(); anchors=null; anchorsByPage={}; photos={}; imgReady=false; mode='idle';
+  answers=newAnswers(); anchors=null; anchorsByPage={}; pageKnots={}; pageSnapDeltas={}; photos={}; imgReady=false; mode='idle';
+  liveLockedPage=0; liveAnchorsPrev=null;     // si la cámara en vivo está activa, re-engancha
   keyMode=false; $('#keyBanner').style.display='none'; curPage=1;
   lastScores={}; pagesDetected=new Set(); reviewQueue=[]; reviewIdx=0;
   $('#modelPill').textContent = EX().name;
@@ -529,14 +530,17 @@ function openRowDialog(i){
 const img = $('#photo'), cv = $('#overlay'), ctx = cv.getContext('2d');
 function showStage(){ $('#stage').classList.add('show'); $('#captureBtns').style.display='flex'; $('#sensWrap').hidden=false; }
 function fitCanvas(){
-  const w = img.naturalWidth||img.clientWidth, h = img.naturalHeight||img.clientHeight;
+  const live = liveMode && liveFrame;
+  const w = live ? liveFrame.width  : (img.naturalWidth||img.clientWidth);
+  const h = live ? liveFrame.height : (img.naturalHeight||img.clientHeight);
   cv.width = w; cv.height = h;
-  cv.style.width = img.clientWidth+'px'; cv.style.height = img.clientHeight+'px';
+  const disp = live ? $('#video') : img;
+  cv.style.width = disp.clientWidth+'px'; cv.style.height = disp.clientHeight+'px';
 }
 // Carga una nueva foto para la página actual (dataURL, persiste al cambiar de página)
 // keepRect=true cuando la foto viene del enderezado interno (no resetea el flag)
 function setPhoto(src, keepRect){
-  if(!keepRect) photoRectified=false;
+  if(!keepRect){ photoRectified=false; isRectified=false; rectOriginal=null; }
   photos[curPage]=src; anchors=null; anchorsByPage[curPage]=null; pageKnots[curPage]=null; pageSnapDeltas[curPage]=null; mode='idle';
   showStage(); $('#video').style.display='none'; img.style.display='block';
   img.onload = ()=>{ imgReady=true; fitCanvas(); setHint(''); drawOverlay(); maybeAutoProcess(false); };
@@ -553,25 +557,160 @@ function showPagePhoto(p){
   }
 }
 $('#fileInput').onchange = e=>{
-  const f = e.target.files[0]; if(!f) return; stopLive();
+  const f = e.target.files[0]; if(!f) return; stopLiveMode();
   const fr = new FileReader(); fr.onload = ()=> setPhoto(fr.result); fr.readAsDataURL(f);
 };
 $('#btnFoto').onclick = ()=> $('#fileInput').click();
 $('#btnSinFoto').onclick = ()=>{ $('#stage').classList.remove('show'); imgReady=false; renderResults(); };
 
+/* ============================================================
+   CÁMARA EN VIVO con corrección superpuesta (sin capturar):
+   - busca el examen en los fotogramas hasta "engancharlo"
+     (anclas + página + modelo, igual que con una foto);
+   - después SIGUE las anclas fotograma a fotograma (búsqueda
+     local, barata) y repinta ✔/✘/? encima del vídeo ~1 vez/s;
+   - «📸 Capturar» congela ese fotograma y pasa al flujo normal
+     (dudas guiadas, nota y muestras de aprendizaje).
+   ============================================================ */
+let liveMode=false, liveFrame=null, liveBusy=false, liveTimer=null;
+let liveLockedPage=0, liveAnchorsPrev=null, liveMiss=0;
+const patchImgCache={};
+async function getPatchImgs(cal){
+  const key=cal.patches[0].slice(40,90);
+  if(!patchImgCache[key]) patchImgCache[key]=await Promise.all(cal.patches.slice(0,2).map(loadImage));
+  return patchImgCache[key];
+}
+function grabFrame(){
+  const v=$('#video'); if(!v.videoWidth) return false;
+  const maxDim=1600, sc=Math.min(1, maxDim/Math.max(v.videoWidth, v.videoHeight));
+  const w=Math.round(v.videoWidth*sc), h=Math.round(v.videoHeight*sc);
+  if(!liveFrame || liveFrame.width!==w || liveFrame.height!==h){
+    liveFrame=document.createElement('canvas'); liveFrame.width=w; liveFrame.height=h;
+  }
+  liveFrame.getContext('2d').drawImage(v, 0, 0, w, h);
+  return true;
+}
+async function liveTick(){
+  if(!liveMode || liveBusy) return;
+  liveBusy=true;
+  try{
+    if(grabFrame()){
+      fitCanvas();
+      if(!liveLockedPage){
+        setHint('🎥 Buscando el examen… mantén el folio entero y recto en pantalla');
+        await liveLock();
+      } else {
+        const ok=await liveTrack();
+        if(!ok){
+          if(++liveMiss>=2){          // 2 fotogramas perdidos seguidos → re-enganchar
+            liveMiss=0; liveLockedPage=0; liveAnchorsPrev=null; anchors=null; pageKnots[curPage]=null;
+            ctx.clearRect(0,0,cv.width,cv.height);
+          }
+        } else liveMiss=0;
+      }
+    }
+  }catch(e){ console.warn('live:', e); }
+  liveBusy=false;
+  if(liveMode) liveTimer=setTimeout(liveTick, liveLockedPage?350:250);
+}
+async function liveLock(){
+  const otherExam = DB.modelMark
+    ? (DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId) : null;
+  let res=null, srcId=DB.curId, pageUsed=curPage;
+  const tryOne=async(page, exam, id)=>{
+    if(res && res.conf>=0.45) return;
+    let r=null; try{ r=await autoAnchors(page, exam, true); }catch(e){}
+    if(r && (!res || r.conf>res.conf)){ res=r; srcId=id; pageUsed=page; }
+  };
+  await tryOne(curPage, null, DB.curId);
+  if(otherExam && DB.exams[otherExam]) await tryOne(curPage, DB.exams[otherExam], otherExam);
+  if(EX().pageMode===2){
+    const op=curPage===1?2:1;
+    await tryOne(op, null, DB.curId);
+    if(otherExam && DB.exams[otherExam]) await tryOne(op, DB.exams[otherExam], otherExam);
+  }
+  if(!res || res.conf<0.45 || !liveMode) return;
+  if(srcId!==DB.curId) softSwitchExam(srcId);
+  if(pageUsed!==curPage){ curPage=pageUsed; syncPageSeg(); refreshCalStatus(); }
+  anchors=res.anchors; anchorsByPage[curPage]=anchors;
+  pageKnots[curPage]=(res.fit && res.fit.length>=3) ? {examId:DB.curId, knots:res.fit} : null;
+  if(DB.modelMark && curPage===(DB.modelMark.page||1)){
+    let dec=null; try{ dec=await decideModel(); }catch(e){}
+    if(dec && DB.exams[dec.targetId] && dec.targetId!==DB.curId){
+      softSwitchExam(dec.targetId);
+      let r5=null; try{ r5=await autoAnchors(curPage, null, true); }catch(e){}
+      if(r5 && r5.conf>=0.45){
+        anchors=r5.anchors; anchorsByPage[curPage]=anchors;
+        pageKnots[curPage]=(r5.fit && r5.fit.length>=3) ? {examId:DB.curId, knots:r5.fit} : null;
+      } else pageKnots[curPage]=null;
+    }
+  }
+  liveLockedPage=curPage;
+  liveAnchorsPrev=anchors.map(a=>({x:a.x, y:a.y}));
+  setHint('🎥 '+EX().name+' · pág. '+curPage+' — corrección en vivo (pulsa 📸 para fijarla)');
+  detect(curPage);
+}
+async function liveTrack(){
+  const cal=pageCal(curPage);
+  if(!cal || !cal.patches || !cal.A || !cal.B || !liveAnchorsPrev) return false;
+  const ims=await getPatchImgs(cal);
+  const dm=Math.hypot(cal.B.x-cal.A.x, cal.B.y-cal.A.y)||1;
+  const dPrev=Math.hypot(liveAnchorsPrev[1].x-liveAnchorsPrev[0].x,
+                         liveAnchorsPrev[1].y-liveAnchorsPrev[0].y)||1;
+  const sPhoto=dPrev/dm;
+  const mi=grayOfImg(1100);
+  const tR=Math.max(12, Math.round(2*cal.pHalf*sPhoto*mi.scale));
+  if(tR>Math.min(mi.w,mi.h)*0.5) return false;
+  const find=(im2, prev)=>{
+    const tpl=grayOf(im2,tR,tR).g;
+    const cx=prev.x*mi.scale, cy=prev.y*mi.scale, win=tR*0.9;   // tolera el pulso de la mano
+    const r=nccSearch(mi, tpl, tR, {x0:cx-tR/2-win, y0:cy-tR/2-win, x1:cx+tR/2+win, y1:cy+tR/2+win}, 1);
+    return r[0] ? {x:(r[0].x+tR/2)/mi.scale, y:(r[0].y+tR/2)/mi.scale, score:r[0].score} : null;
+  };
+  const RA=find(ims[0], liveAnchorsPrev[0]), RB=find(ims[1], liveAnchorsPrev[1]);
+  if(!RA || !RB || Math.min(RA.score,RB.score)<0.4) return false;
+  // traslada los puntos de apoyo con la misma semejanza que movieron las anclas
+  const pk=pageKnots[curPage];
+  if(pk && pk.knots)
+    pk.knots=pk.knots.map(kn=>{
+      const q=simMap(liveAnchorsPrev[0], liveAnchorsPrev[1], RA, RB, kn);
+      return {t:kn.t, x:q.x, y:q.y};
+    });
+  anchors=[{x:RA.x,y:RA.y},{x:RB.x,y:RB.y}];
+  anchorsByPage[curPage]=anchors;
+  liveAnchorsPrev=anchors.map(a=>({x:a.x, y:a.y}));
+  detect(curPage);
+  return true;
+}
+function stopLiveMode(){
+  liveMode=false; liveLockedPage=0; liveAnchorsPrev=null;
+  if(liveTimer){ clearTimeout(liveTimer); liveTimer=null; }
+  stopLive();
+  $('#btnLive').textContent='🎥 En vivo (corrige sin capturar)';
+  $('#btnShot').style.display='none';
+  setHint('');
+}
+
 /* Cámara en vivo (solo si contexto seguro) */
 if(window.isSecureContext && navigator.mediaDevices?.getUserMedia){ $('#btnLive').style.display='inline-block'; }
 $('#btnLive').onclick = async ()=>{
+  if(liveMode){ stopLiveMode(); return; }
   try{
-    liveStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+    liveStream = await navigator.mediaDevices.getUserMedia(
+      {video:{facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}}, audio:false});
     const v=$('#video'); v.srcObject=liveStream; await v.play();
     v.style.display='block'; img.style.display='none'; showStage(); $('#btnShot').style.display='inline-block';
+    liveMode=true; liveLockedPage=0; imgReady=false;
+    $('#btnLive').textContent='⏹ Parar cámara';
+    setHint('🎥 Apunta al examen (folio entero y recto)…');
+    liveTick();
   }catch(err){ alert('No se pudo abrir la cámara: '+err.message+'\nUsa «Tomar / elegir foto».'); }
 };
 $('#btnShot').onclick = ()=>{
   const v=$('#video'); const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
   c.getContext('2d').drawImage(v,0,0); const src=c.toDataURL('image/jpeg',0.92);
-  $('#btnShot').style.display='none'; stopLive(); setPhoto(src);
+  stopLiveMode();
+  setPhoto(src);                       // flujo normal: endereza, detecta, dudas y nota
 };
 function stopLive(){ if(liveStream){ liveStream.getTracks().forEach(t=>t.stop()); liveStream=null; } $('#video').style.display='none'; }
 window.addEventListener('resize', ()=>{ if(imgReady){ fitCanvas(); drawOverlay(); } });
@@ -818,10 +957,14 @@ function grayOf(source, w, h){
   for(let i=0;i<w*h;i++) g[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
   return {g, w, h};
 }
-// Foto actual reducida a maxDim (lado mayor); .scale = factor respecto al original
+// Fuente de imagen actual: la foto, o el fotograma de la cámara en vivo
+function srcEl(){ return (liveMode && liveFrame) ? liveFrame : img; }
+function srcW(){ const s=srcEl(); return s.naturalWidth||s.width; }
+function srcH(){ const s=srcEl(); return s.naturalHeight||s.height; }
+// Fuente actual reducida a maxDim (lado mayor); .scale = factor respecto al original
 function grayOfImg(maxDim){
-  const W=img.naturalWidth, H=img.naturalHeight, sc=Math.min(1, maxDim/Math.max(W,H));
-  const o=grayOf(img, Math.max(1,Math.round(W*sc)), Math.max(1,Math.round(H*sc)));
+  const W=srcW(), H=srcH(), sc=Math.min(1, maxDim/Math.max(W,H));
+  const o=grayOf(srcEl(), Math.max(1,Math.round(W*sc)), Math.max(1,Math.round(H*sc)));
   o.scale=sc; return o;
 }
 
@@ -832,7 +975,9 @@ function grayOfImg(maxDim){
    trabaja siempre con la página recta y a tamaño conocido, aunque
    la foto venga torcida, inclinada o con el folio pequeño.
    ============================================================ */
-let photoRectified=false;
+let photoRectified=false;   // ya se intentó enderezar esta foto
+let isRectified=false;      // la foto en pantalla ES una versión enderezada
+let rectOriginal=null;      // la foto original, para volver si el enderezado salió mal
 async function rectifyPage(){
   try{
     const S=330, im=grayOfImg(S), g=im.g, w=im.w, h=im.h;
@@ -874,7 +1019,16 @@ async function rectifyPage(){
     const area=0.5*Math.abs(
       tl.x*(tr.y-bl.y)+tr.x*(br.y-tl.y)+br.x*(bl.y-tr.y)+bl.x*(tl.y-br.y));
     if(area < w*h*0.18) return null;                   // demasiado pequeño
-    if(top/bottom>1.6||bottom/top>1.6||left/right>1.6||right/left>1.6) return null;
+    if(top/bottom>1.45||bottom/top>1.45||left/right>1.45||right/left>1.45) return null;
+    // esquinas ~rectas: si no, el "folio" detectado no es un folio (otra hoja
+    // pegada, sombras…) y el warp lo retorcería
+    const angOf=(p,q,r)=>{
+      const v1x=p.x-q.x, v1y=p.y-q.y, v2x=r.x-q.x, v2y=r.y-q.y;
+      const d=(v1x*v2x+v1y*v2y)/((Math.hypot(v1x,v1y)*Math.hypot(v2x,v2y))||1);
+      return Math.acos(Math.max(-1, Math.min(1, d)))*180/Math.PI;
+    };
+    const angs=[angOf(bl,tl,tr), angOf(tl,tr,br), angOf(tr,br,bl), angOf(br,bl,tl)];
+    if(angs.some(a2=>a2<62 || a2>118)) return null;
     let quad=[tl,tr,br,bl];
     let aspect=((left+right)/2)/((top+bottom)/2);
     if(aspect<1){ quad=[tr,br,bl,tl]; aspect=1/aspect; } // foto apaisada → folio girado 90°
@@ -989,7 +1143,7 @@ async function autoAnchors(page, exam, lite){
   const imA=ims[0], imB=ims[1];
   const wPos=cal.W || (cal.M ? [cal.M] : []);     // compat con calibraciones de 1 testigo
   const wImgs=ims.slice(2, 2+wPos.length);
-  const ratio0=Math.max(img.naturalWidth, img.naturalHeight)/cal.masterDim;
+  const ratio0=Math.max(srcW(), srcH())/cal.masterDim;
   const dm=Math.hypot(cal.B.x-cal.A.x, cal.B.y-cal.A.y)||1;
   const angM=Math.atan2(cal.B.y-cal.A.y, cal.B.x-cal.A.x);
   // 1) búsqueda gruesa multi-escala. En un test las filas son casi idénticas
@@ -999,8 +1153,8 @@ async function autoAnchors(page, exam, lite){
   const co=grayOfImg(240);
   // foto enderezada → la página llena el lienzo y la escala es ~1;
   // sin enderezar → rejilla amplia (el folio puede salir pequeño en la foto)
-  const scales = photoRectified ? [0.72, 0.85, 1.0, 1.18]
-                                : [0.5, 0.62, 0.78, 0.95, 1.15, 1.4];
+  const scales = isRectified ? [0.72, 0.85, 1.0, 1.18]
+                             : [0.5, 0.62, 0.78, 0.95, 1.15, 1.4];
   const pairs=[];
   const pushPair=(a,b,dExp,s,t,tWs)=>{
     const d=Math.hypot(b.x-a.x, b.y-a.y);
@@ -1131,7 +1285,11 @@ async function maybeAutoProcess(force){
     let ru=null;
     try{ ru=await rectifyPage(); }catch(e){ console.warn('rectify:', e); }
     photoRectified=true;
-    if(ru){ autoBusy=false; setPhoto(ru, true); return; }   // recarga y re-entra ya recta
+    if(ru){
+      rectOriginal=photos[curPage];                 // por si el enderezado sale mal
+      isRectified=true;
+      autoBusy=false; setPhoto(ru, true); return;   // recarga y re-entra ya recta
+    }
   }
   setHint('🤖 Buscando referencias automáticamente…');
   await new Promise(r=>setTimeout(r,40));               // deja pintar el aviso
@@ -1160,11 +1318,21 @@ async function maybeAutoProcess(force){
       if(r4 && (!res || r4.conf>res.conf)){ res=r4; srcId=otherExam; pageUsed=op; }
     }
   }
-  autoBusy=false; autoForce=false;
+  autoBusy=false;
   if(!res || res.conf<0.45){
+    if(rectOriginal){
+      // el enderezado distorsionó la foto: vuelve a la ORIGINAL y reintenta
+      const orig=rectOriginal; rectOriginal=null; isRectified=false;
+      setHint('📐 El enderezado no ayudó: reintento con la foto original…');
+      setPhoto(orig, true);                         // keepRect → no vuelve a enderezar
+      return;
+    }
+    autoForce=false;
     setHint('🤖 No localizo las referencias con seguridad. Pulsa «📍 Marcar referencias» y colócalas tú.');
     return;
   }
+  autoForce=false;
+  rectOriginal=null;                                // éxito: ya no hace falta volver
   if(srcId!==DB.curId && !keyMode) softSwitchExam(srcId);
   if(pageUsed!==curPage){
     // la foto era de la otra página: muévela allí y cambia el selector
@@ -1238,7 +1406,7 @@ function fromRelAnchors(rp){
 /* Mide una banda orientada de P1 a P2 (h0 por encima, h1 por debajo) y decide
    si hay subrayado (carrera horizontal continua bajo la palabra). */
 function measureBand(P1,P2,h0,h1){
-  if(!imgReady) return null;
+  if(!imgReady && !(liveMode && liveFrame)) return null;
   const len=Math.hypot(P2.x-P1.x, P2.y-P1.y); if(len<4) return null;
   const ux=(P2.x-P1.x)/len, uy=(P2.y-P1.y)/len, px=-uy, py=ux;
   const bandH=h0+h1;
@@ -1249,7 +1417,7 @@ function measureBand(P1,P2,h0,h1){
   const cc=c.getContext('2d');
   cc.setTransform(ux*N/len, px*M/bandH, uy*N/len, py*M/bandH,
                   -(P0.x*ux+P0.y*uy)*N/len, -(P0.x*px+P0.y*py)*M/bandH);
-  cc.drawImage(img, 0, 0);
+  cc.drawImage(srcEl(), 0, 0);
   const dat=cc.getImageData(0,0,N,M).data;
   let sum=0; const lum=new Float32Array(N*M);
   for(let i=0;i<N*M;i++){ lum[i]=0.299*dat[i*4]+0.587*dat[i*4+1]+0.114*dat[i*4+2]; sum+=lum[i]; }
@@ -1273,7 +1441,8 @@ function measureBand(P1,P2,h0,h1){
 }
 function measureModelMark(){
   const mm=DB.modelMark;
-  if(!mm || !anchors || anchors.length<2 || !imgReady) return null;
+  if(!mm || !anchors || anchors.length<2) return null;
+  if(!imgReady && !(liveMode && liveFrame)) return null;
   const P1=fromRelAnchors(mm.a), P2=fromRelAnchors(mm.b);
   const A=anchors[0], B=anchors[1], L=Math.hypot(B.x-A.x,B.y-A.y)||1;
   return measureBand(P1, P2, 0.030*L, 0.045*L);
@@ -1491,8 +1660,8 @@ function detect(page){
   pageSnapDeltas[page]=null;            // se recalcula en cada detección
   const pts = mappedPoints(page); if(!pts) return;
   anchorsByPage[page]=anchors;          // para los recortes de la revisión de dudas
-  const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
-  const cc=c.getContext('2d'); cc.drawImage(img,0,0);
+  const c=document.createElement('canvas'); c.width=srcW(); c.height=srcH();
+  const cc=c.getContext('2d'); cc.drawImage(srcEl(),0,0);
   const data = cc.getImageData(0,0,c.width,c.height).data;
   const sens = +$('#sens').value, qs=pageQuestions(page), kMode=keyMode;
   const snap=snapPage(pts, data, c.width, c.height);                     // ajuste fino global
@@ -1531,6 +1700,7 @@ function detect(page){
     renderResults(); drawOverlay(); return;
   }
   renderResults(); drawOverlay();
+  if(liveMode) return;                  // en vivo: solo refrescar overlay/resumen
   pagesDetected.add(page);
   afterPageDetected(page);
 }
@@ -1565,7 +1735,7 @@ function afterPageDetected(page){
 /* ---------- Dibujo del overlay (✔/✘/?) ---------- */
 function setHint(t){ const h=$('#hint'); if(t){ h.style.display='block'; h.textContent=t; } else h.style.display='none'; }
 function drawOverlay(){
-  if(!imgReady){ return; }
+  if(!imgReady && !(liveMode && liveFrame)){ return; }
   ctx.clearRect(0,0,cv.width,cv.height);
   // puntos de calibración en curso
   if(mode==='calibrate'){
@@ -1904,7 +2074,7 @@ function resetExamState(){
 }
 $('#btnReset').onclick = resetExamState;
 // «Siguiente examen»: limpia y abre la cámara en un solo toque
-$('#btnNextExam').onclick = ()=>{ resetExamState(); stopLive(); $('#fileInput').click(); };
+$('#btnNextExam').onclick = ()=>{ resetExamState(); stopLiveMode(); $('#fileInput').click(); };
 
 syncExamSel(); setExam(DB.curId); refreshMarkStatus();
 $('#smpCount').textContent = loadSamples().length;
