@@ -83,8 +83,9 @@
   .badge{font-size:11px; padding:2px 6px; border-radius:6px; background:#0c1016; border:1px solid var(--linea); color:var(--txt2);}
   .examsel{flex:1; min-width:0; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:10px; padding:9px 10px; font-size:14px;}
   /* modo manual rápido */
-  .mnopt{font-size:26px; width:70px; height:62px;}
-  #dlgManual{min-width:280px;}
+  .mnopt{font-size:30px; width:84px; height:74px;}
+  .mnoptx{font-size:17px; padding:13px 18px;}
+  #dlgManual{min-width:300px;}
   .pill{max-width:48vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .keybanner{background:#3a2f00; border:1px solid var(--duda); color:#ffe082; border-radius:10px; padding:9px 11px; font-size:13px; margin-bottom:10px; display:none;}
 </style>
@@ -143,6 +144,13 @@
       <div class="seg" id="pageSeg" style="margin-top:8px; display:none">
         <button data-cp="1" class="on">Pág. 1 · preg. 1–4</button>
         <button data-cp="2">Pág. 2 · preg. 5–10</button>
+      </div>
+      <div id="firstWrap" style="margin-top:8px; display:none">
+        <label class="small">¿Qué cara fotografías PRIMERO? (para el modo en vivo con auto-captura)</label>
+        <div class="seg" id="firstSeg" style="margin-top:4px">
+          <button data-fp="1" class="on">Primero pág. 1</button>
+          <button data-fp="2">Primero pág. 2</button>
+        </div>
       </div>
     </div>
 
@@ -260,7 +268,7 @@
   </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, vista simplificada y enderezado a prueba de fallos · v3.5
+    Corrector tipo test · cámara en vivo con zoom automático, auto-captura en vivo y pregunta de modelo · v3.6
   </p>
 </main>
 
@@ -276,6 +284,13 @@
     <button class="ghost dlgopt" data-v="doubt" style="color:var(--duda)">Duda (?)</button>
   </div>
   <button class="ghost wide" style="margin-top:10px" onclick="document.getElementById('dlgRow').close()">Cerrar</button>
+</dialog>
+
+<!-- Pregunta de modelo cuando la detección no es clara -->
+<dialog id="dlgModel">
+  <h3 style="margin:0 0 6px; text-align:center">¿Qué modelo es este examen?</h3>
+  <p class="muted" style="margin:0 0 10px; text-align:center">No lo distingo con seguridad en esta foto.</p>
+  <div id="dmBody"></div>
 </dialog>
 
 <!-- Modo manual rápido: modelo → pregunta a pregunta → resultado -->
@@ -466,7 +481,7 @@ function setExam(id){
   $('#cfgOk').value = EX().pointsOk; $('#cfgBad').value = EX().pointsBad;
   syncExamSel();
   document.querySelectorAll('#pagesSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.p===EX().pageMode));
-  $('#pageSeg').style.display = EX().pageMode===2 ? 'flex':'none'; syncPageSeg();
+  $('#pageSeg').style.display = EX().pageMode===2 ? 'flex':'none'; syncPageSeg(); syncFirstSeg();
   $('#stage').classList.remove('show');
   renderKeys(); renderResults(); refreshCalStatus();
   if(ctx) ctx.clearRect(0,0,cv.width,cv.height);
@@ -601,13 +616,17 @@ function renderManual(){
   if(mnIdx<0){
     t.textContent='¿Qué modelo es?';
     b.innerHTML='';
-    DB.order.forEach(id=>{
+    DB.order.forEach((id,i)=>{
       const btn=document.createElement('button');
-      btn.className='wide'; btn.style.marginTop='8px';
-      btn.textContent=DB.exams[id].name;
+      btn.className='wide'; btn.style.marginTop='8px'; btn.style.padding='14px';
+      btn.textContent=(i<9 ? (i+1)+' · ' : '')+DB.exams[id].name;
       btn.onclick=()=>{ if(id!==DB.curId) softSwitchExam(id); mnIdx=0; renderManual(); };
       b.appendChild(btn);
     });
+    const k=document.createElement('p');
+    k.className='muted'; k.style.cssText='margin:8px 0 0; font-size:11px; text-align:center';
+    k.textContent='Teclado: 1 = Modelo 1 · 2 = Modelo 2';
+    b.appendChild(k);
     const c=document.createElement('button');
     c.className='ghost wide'; c.style.marginTop='10px'; c.textContent='Cancelar';
     c.onclick=()=>$('#dlgManual').close();
@@ -627,9 +646,20 @@ function renderManual(){
       '</div>'+
       '<div class="total"><div class="pts">'+fmt(g.pts)+' / '+fmt(g.mx)+'</div>'+
       '<div class="nota">Nota: '+fmt(g.nota)+' / 10 · '+literal(g.nota)+'</div></div>'+
-      '<button class="wide" id="mnNext" style="margin-top:10px">⚡ Siguiente alumno</button>'+
+      // tira ✔/✘ por pregunta, para copiarla en el examen en papel
+      '<div style="display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:10px">'+
+        Array.from({length:NQ},(_,i)=>{
+          const c=classify(i);
+          const IC={ok:'✔',mal:'✘',duda:'?',blanco:'·',anulada:'∅'}[c];
+          const CO={ok:'var(--ok)',mal:'var(--mal)',duda:'var(--duda)',blanco:'var(--blanco)',anulada:'#b39ddb'}[c];
+          return '<div style="text-align:center; min-width:27px; background:#0c1016; border:1px solid var(--linea); border-radius:7px; padding:2px 1px">'+
+            '<div class="muted" style="font-size:10px">'+(i+1)+'</div>'+
+            '<div style="font-size:19px; font-weight:800; line-height:1.1; color:'+CO+'">'+IC+'</div></div>';
+        }).join('')+
+      '</div>'+
+      '<button class="wide" id="mnNext" style="margin-top:10px">⚡ Siguiente alumno (Enter)</button>'+
       '<button class="ghost wide" id="mnDone" style="margin-top:8px">Cerrar y revisar</button>';
-    $('#mnNext').onclick=()=>{ resetExamState(); mnIdx=0; renderManual(); };
+    $('#mnNext').onclick=()=>{ resetExamState(); mnIdx=-1; renderManual(); };  // cada alumno: su modelo
     $('#mnDone').onclick=()=>{ $('#dlgManual').close(); renderResults();
       document.querySelector('#card-result').scrollIntoView({behavior:'smooth'}); };
     return;
@@ -660,10 +690,25 @@ $('#btnManual').onclick = ()=>{
   mnIdx=-1; renderManual();
   $('#dlgManual').showModal();
 };
-// teclado (ordenador): 1/2/3 = a/b/c · 0 = blanco · Backspace/← = atrás
+// teclado (ordenador): en el modelo 1/2 eligen modelo · en preguntas 1/2/3=a/b/c,
+// 0=blanco, ←=atrás · en el resultado Enter = siguiente alumno
 document.addEventListener('keydown', ev=>{
   const d=$('#dlgManual');
-  if(!d.open || mnIdx<0 || mnIdx>=NQ) return;
+  if(!d.open) return;
+  if(mnIdx<0){
+    const i=+ev.key-1;
+    if(i>=0 && i<DB.order.length){
+      ev.preventDefault();
+      const id=DB.order[i];
+      if(id!==DB.curId) softSwitchExam(id);
+      mnIdx=0; renderManual();
+    }
+    return;
+  }
+  if(mnIdx>=NQ){
+    if(ev.key==='Enter'){ ev.preventDefault(); const n=$('#mnNext'); if(n) n.click(); }
+    return;
+  }
   const map={'1':'a','2':'b','3':'c','0':'null'};
   if(map[ev.key]!==undefined){ ev.preventDefault(); manualAnswer(map[ev.key]); }
   else if(ev.key==='Backspace'||ev.key==='ArrowLeft'){
@@ -722,32 +767,45 @@ async function liveTick(){
   if(liveMode) liveTimer=setTimeout(liveTick, liveLockedPage?350:250);
 }
 async function liveLock(){
-  // si ya hay una página corregida de este examen, el modelo no se toca
+  // si ya hay una página corregida de este examen, el modelo no se toca,
+  // pero el calibrado del otro modelo SÍ vale para anclar (misma maquetación)
   const lockModel = pagesDetected.size>0;
-  const otherExam = (!lockModel && DB.modelMark)
+  const otherExam = DB.modelMark
     ? (DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId) : null;
   let res=null, srcId=DB.curId, pageUsed=curPage;
-  const tryOne=async(page, exam, id)=>{
+  const tryOne=async(page, exam, id, lite)=>{
     if(res && res.conf>=0.45) return;
-    let r=null; try{ r=await autoAnchors(page, exam, true); }catch(e){}
+    let r=null; try{ r=await autoAnchors(page, exam, lite); }catch(e){}
     if(r && (!res || r.conf>res.conf)){ res=r; srcId=id; pageUsed=page; }
   };
-  await tryOne(curPage, null, DB.curId);
-  if(otherExam && DB.exams[otherExam]) await tryOne(curPage, DB.exams[otherExam], otherExam);
+  await tryOne(curPage, null, DB.curId, true);
+  if(otherExam && DB.exams[otherExam]) await tryOne(curPage, DB.exams[otherExam], otherExam, !lockModel);
   if(EX().pageMode===2){
     const op=curPage===1?2:1;
-    await tryOne(op, null, DB.curId);
-    if(otherExam && DB.exams[otherExam]) await tryOne(op, DB.exams[otherExam], otherExam);
+    await tryOne(op, null, DB.curId, true);
+    if(otherExam && DB.exams[otherExam]) await tryOne(op, DB.exams[otherExam], otherExam, !lockModel);
   }
   if(!res || res.conf<0.45 || !liveMode) return;
-  if(srcId!==DB.curId) softSwitchExam(srcId);
+  // ¿la cámara sigue viendo una cara YA capturada? avisa y no re-captures
+  if(pagesDetected.has(pageUsed)){
+    setHint('🔄 Esa cara ya está corregida: DA LA VUELTA a la hoja…');
+    return;
+  }
+  if(srcId!==DB.curId && !lockModel) softSwitchExam(srcId);
   if(pageUsed!==curPage){ curPage=pageUsed; syncPageSeg(); refreshCalStatus(); }
   anchors=res.anchors; anchorsByPage[curPage]=anchors;
-  pageKnots[curPage]=(res.fit && res.fit.length>=3) ? {examId:DB.curId, knots:res.fit} : null;
-  if(DB.modelMark && !lockModel && curPage===(DB.modelMark.page||1)){
-    let dec=null; try{ dec=await decideModel(); }catch(e){}
-    if(dec && DB.exams[dec.targetId] && dec.targetId!==DB.curId){
-      softSwitchExam(dec.targetId);
+  pageKnots[curPage]=(res.fit && res.fit.length>=3 && srcId===DB.curId)
+    ? {examId:DB.curId, knots:res.fit} : null;
+  if(DB.modelMark && !lockModel){
+    // claro → se aplica; dudoso → SE PREGUNTA (el directo se pausa solo)
+    let dec=null;
+    if(curPage===(DB.modelMark.page||1)){
+      try{ dec=await decideModel(); }catch(e){}
+    }
+    let target = (dec && dec.sure) ? dec.targetId : null;
+    if(!target) target=await askModel(dec ? dec.targetId : DB.curId);
+    if(target && DB.exams[target] && target!==DB.curId){
+      softSwitchExam(target);
       let r5=null; try{ r5=await autoAnchors(curPage, null, true); }catch(e){}
       if(r5 && r5.conf>=0.45){
         anchors=r5.anchors; anchorsByPage[curPage]=anchors;
@@ -757,8 +815,34 @@ async function liveLock(){
   }
   liveLockedPage=curPage;
   liveAnchorsPrev=anchors.map(a=>({x:a.x, y:a.y}));
-  setHint('🎥 '+EX().name+' · pág. '+curPage+' — corrección en vivo (pulsa 📸 para fijarla)');
   detect(curPage);
+  // AUTO-CAPTURA: esta cara ya está leída en este fotograma → guárdala y
+  // pasa a la siguiente (el usuario solo tiene que dar la vuelta)
+  await liveAutoCapture();
+}
+/* Captura automática de la cara enganchada y avance del flujo en vivo. */
+async function liveAutoCapture(){
+  if(!liveMode || !liveFrame) return;
+  try{ photos[curPage]=liveFrame.toDataURL('image/jpeg', 0.9); }catch(e){}
+  pagesDetected.add(curPage);
+  const qs=pageQuestions(curPage);
+  const flagged=qs.filter(needsReview).length;
+  if(EX().pageMode===2){
+    const other=curPage===1?2:1;
+    if(!pagesDetected.has(other)){
+      setHint('📸 Página '+curPage+' capturada ('+(qs.length-flagged)+' claras'
+        +(flagged?', '+flagged+' a revisar':'')+'). 🔄 DA LA VUELTA: busco la página '+other+'…');
+      curPage=other; anchors=null; syncPageSeg(); refreshCalStatus();
+      liveLockedPage=0; liveAnchorsPrev=null;
+      ctx.clearRect(0,0,cv.width,cv.height);
+      return;                                  // el bucle sigue buscando la otra cara
+    }
+  }
+  // todas las caras capturadas → fin del directo y revisión de dudas
+  stopLiveMode();
+  imgReady=false; showPagePhoto(curPage);
+  setHint('✅ Detección completa. Vamos con las dudas…');
+  setTimeout(resolveDoubts, 500);
 }
 async function liveTrack(){
   const cal=pageCal(curPage);
@@ -820,8 +904,12 @@ $('#btnLive').onclick = async ()=>{
     const v=$('#video'); v.srcObject=liveStream; await v.play();
     v.style.display='block'; img.style.display='none'; showStage(); $('#btnShot').style.display='inline-block';
     liveMode=true; liveLockedPage=0; imgReady=false;
+    // empieza por la cara que el examinador eligió fotografiar primero
+    if(EX().pageMode===2 && pagesDetected.size===0 && curPage!==firstPage()){
+      curPage=firstPage(); anchors=null; syncPageSeg(); refreshCalStatus();
+    }
     $('#btnLive').textContent='⏹ Parar cámara';
-    setHint('🎥 Apunta al examen (folio entero y recto)…');
+    setHint('🎥 Apunta a la '+(EX().pageMode===2?'página '+curPage+' ':'')+'del examen (folio entero y recto)…');
     liveTick();
   }catch(err){ alert('No se pudo abrir la cámara: '+err.message+'\nUsa «Tomar / elegir foto».'); }
 };
@@ -1457,13 +1545,16 @@ async function maybeAutoProcess(force){
    ya se corrigió una página de este examen (la otra es del mismo alumno). */
 async function anchorTrials(){
   const lockModel = pagesDetected.size>0;
-  const otherExam = (!lockModel && DB.modelMark)
+  // el calibrado del OTRO modelo siempre sirve para ANCLAR (la maquetación es
+  // compartida); cambiar o no de modelo se decide después (lockModel)
+  const otherExam = DB.modelMark
     ? (DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId) : null;
   let res=null, srcId=DB.curId, pageUsed=curPage;
   try{ res=await autoAnchors(curPage); }catch(e){ console.warn('autoAnchors:', e); }
   if((!res || res.conf<0.45) && otherExam && DB.exams[otherExam]){
     let r2=null;
-    try{ r2=await autoAnchors(curPage, DB.exams[otherExam], true); }catch(e){}
+    // con el modelo bloqueado este es el único respaldo → presupuesto completo
+    try{ r2=await autoAnchors(curPage, DB.exams[otherExam], !lockModel); }catch(e){}
     if(r2 && (!res || r2.conf>res.conf)){ res=r2; srcId=otherExam; }
   }
   if((!res || res.conf<0.45) && EX().pageMode===2){
@@ -1473,7 +1564,7 @@ async function anchorTrials(){
     if(r3 && (!res || r3.conf>res.conf)){ res=r3; srcId=DB.curId; pageUsed=op; }
     if((!res || res.conf<0.45) && otherExam && DB.exams[otherExam]){
       let r4=null;
-      try{ r4=await autoAnchors(op, DB.exams[otherExam], true); }catch(e){}
+      try{ r4=await autoAnchors(op, DB.exams[otherExam], !lockModel); }catch(e){}
       if(r4 && (!res || r4.conf>res.conf)){ res=r4; srcId=otherExam; pageUsed=op; }
     }
   }
@@ -1483,7 +1574,9 @@ async function anchorTrials(){
    decisión de modelo (si procede) y detección. */
 async function applyAnchorsAndDetect(t){
   let res=t.res;
-  if(t.srcId!==DB.curId && !keyMode) softSwitchExam(t.srcId);
+  // con el modelo BLOQUEADO las anclas del otro calibrado valen, pero el
+  // examen (soluciones) no se toca
+  if(t.srcId!==DB.curId && !keyMode && !t.lockModel) softSwitchExam(t.srcId);
   if(t.pageUsed!==curPage){
     // la foto era de la otra página: muévela allí y cambia el selector
     photos[t.pageUsed]=photos[curPage]; photos[curPage]=null; anchorsByPage[curPage]=null;
@@ -1493,14 +1586,21 @@ async function applyAnchorsAndDetect(t){
   }
   anchors=res.anchors; anchorsByPage[curPage]=anchors;
   // puntos de apoyo (anclas + testigos) → mapeo por tramos de esta página
-  pageKnots[curPage] = (res.fit && res.fit.length>=3) ? {examId:DB.curId, knots:res.fit} : null;
-  if(DB.modelMark && !keyMode && !t.lockModel && curPage===(DB.modelMark.page||1)){
-    // decisión de modelo (parche de zona por modelo; subrayado de respaldo);
-    // si no hay decisión fiable se queda la elección por parches de anclas.
+  // (solo válidos si se anclaron con el calibrado del examen ACTUAL)
+  pageKnots[curPage] = (res.fit && res.fit.length>=3 && t.srcId===DB.curId)
+    ? {examId:DB.curId, knots:res.fit} : null;
+  if(DB.modelMark && !keyMode && !t.lockModel){
+    // decisión de modelo: si la evidencia es CLARA se aplica; si no, SE
+    // PREGUNTA (un toque): lo fundamental es no corregir con las
+    // soluciones equivocadas. Después queda bloqueado para este alumno.
     let dec=null;
-    try{ dec=await decideModel(); }catch(e){ console.warn('decideModel:', e); }
-    if(dec && DB.exams[dec.targetId] && dec.targetId!==DB.curId){
-      softSwitchExam(dec.targetId);
+    if(curPage===(DB.modelMark.page||1)){
+      try{ dec=await decideModel(); }catch(e){ console.warn('decideModel:', e); }
+    }
+    let target = (dec && dec.sure) ? dec.targetId : null;
+    if(!target) target=await askModel(dec ? dec.targetId : DB.curId);
+    if(target && DB.exams[target] && target!==DB.curId){
+      softSwitchExam(target);
       // reajusta anclas y puntos de apoyo con la calibración del modelo final
       let r5=null;
       try{ r5=await autoAnchors(curPage, null, true); }catch(e){}
@@ -1658,22 +1758,46 @@ async function decideModel(){
     }
     if(withPatch.length===2){
       const d=scores[ids[0]]-scores[ids[1]];
-      if(Math.abs(d)>=0.05 && Math.max(scores[ids[0]],scores[ids[1]])>=0.5)
+      const mx=Math.max(scores[ids[0]], scores[ids[1]]);
+      if(Math.abs(d)>=0.05 && mx>=0.5)
         return { targetId: d>0?ids[0]:ids[1], how:'parche de zona',
+                 sure: Math.abs(d)>=0.10 && mx>=0.55,         // claro de verdad
                  s:[+scores[ids[0]].toFixed(2), +scores[ids[1]].toFixed(2)] };
       // casi empatados → que decida el subrayado en la zona localizada
     } else {
       // un solo parche: acepta si casa claro, descarta si casa muy mal
       const id=withPatch[0], other=ids.find(x=>x!==id);
-      if(scores[id]>=0.62) return { targetId:id, how:'parche de zona' };
-      if(scores[id]>0 && scores[id]<0.42) return { targetId:other, how:'parche de zona (descarte)' };
+      if(scores[id]>=0.62) return { targetId:id, how:'parche de zona', sure:scores[id]>=0.7 };
+      if(scores[id]>0 && scores[id]<0.42) return { targetId:other, how:'parche de zona (descarte)', sure:false };
     }
   }
   // respaldo: subrayado (en la zona localizada si la hay; si no, banda
   // extrapolada desde las anclas)
   const mk=bestLoc ? measureAtZone(bestLoc) : measureModelMark();
-  if(mk && mk.confident) return { targetId: mk.underlined?mm.underId:mm.plainId, how:'subrayado' };
+  if(mk && mk.confident)
+    return { targetId: mk.underlined?mm.underId:mm.plainId, how:'subrayado',
+             sure: mk.underlined ? mk.run>=0.6 : (mk.wordInk>=0.05 && mk.run<=0.25) };
   return null;
+}
+/* Pregunta de un toque cuando el modelo NO está claro (lo fundamental es no
+   corregir con las soluciones equivocadas). Marca el más probable. */
+function askModel(suggestId){
+  return new Promise(resolve=>{
+    const d=$('#dlgModel'), b=$('#dmBody');
+    b.innerHTML='';
+    const ids=DB.modelMark
+      ? [DB.modelMark.underId, DB.modelMark.plainId].filter(id=>DB.exams[id])
+      : DB.order.slice();
+    ids.forEach(id=>{
+      const btn=document.createElement('button');
+      btn.className='wide'+(id===suggestId ? '' : ' sec');
+      btn.style.marginTop='8px';
+      btn.textContent=DB.exams[id].name+(id===suggestId ? '  ← probable' : '');
+      btn.onclick=()=>{ d.close(); resolve(id); };
+      b.appendChild(btn);
+    });
+    d.showModal();
+  });
 }
 function refreshMarkStatus(){
   const mm=DB.modelMark, el=$('#markStatus');
@@ -1952,11 +2076,20 @@ function glyph(p,ch,col){ const s=Math.max(22,p.r*1.6); ctx.font='bold '+s+'px s
 
 /* ---------- Páginas: selector ---------- */
 function syncPageSeg(){ document.querySelectorAll('#pageSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.cp===curPage)); }
+/* qué cara se fotografía primero (auto-captura en vivo) */
+function firstPage(){ return EX().firstPage===2 ? 2 : 1; }
+function syncFirstSeg(){
+  $('#firstWrap').style.display = EX().pageMode===2 ? 'block' : 'none';
+  document.querySelectorAll('#firstSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.fp===firstPage()));
+}
+document.querySelectorAll('#firstSeg button').forEach(b=> b.onclick=()=>{
+  EX().firstPage=+b.dataset.fp; saveDB(); syncFirstSeg();
+});
 function setPageMode(pm){
   anchorsByPage[curPage]=anchors;                 // guarda referencias de la página que dejamos
   EX().pageMode=pm; saveDB(); curPage=1; mode='idle'; setHint('');
   document.querySelectorAll('#pagesSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.p===pm));
-  $('#pageSeg').style.display = pm===2 ? 'flex' : 'none'; syncPageSeg();
+  $('#pageSeg').style.display = pm===2 ? 'flex' : 'none'; syncPageSeg(); syncFirstSeg();
   anchors = anchorsByPage[1] || null;
   refreshCalStatus(); showPagePhoto(1);
 }
@@ -2226,7 +2359,8 @@ $('#cfgModelUrl').onchange = ()=>{ const u=$('#cfgModelUrl').value.trim(); if(u)
 /* ---------- Reset / arranque ---------- */
 function resetExamState(){
   ghUploadSamples(false);                       // sube lo pendiente antes de pasar al siguiente
-  answers=newAnswers(); anchors=null; anchorsByPage={}; pageKnots={}; pageSnapDeltas={}; photos={}; mode='idle'; curPage=1;
+  answers=newAnswers(); anchors=null; anchorsByPage={}; pageKnots={}; pageSnapDeltas={}; photos={}; mode='idle';
+  curPage = EX().pageMode===2 ? firstPage() : 1;
   keyMode=false; $('#keyBanner').style.display='none';
   lastScores={}; pagesDetected=new Set(); reviewQueue=[]; reviewIdx=0;
   imgReady=false; $('#stage').classList.remove('show'); syncPageSeg(); setHint('');
