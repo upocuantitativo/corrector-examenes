@@ -21,12 +21,20 @@
     padding:10px 12px; display:flex; align-items:center; gap:10px; box-shadow:0 2px 8px rgba(0,0,0,.4);}
   header h1{font-size:17px; margin:0; flex:1; font-weight:700;}
   .pill{background:rgba(255,255,255,.15); border-radius:999px; padding:4px 10px; font-size:13px; font-weight:600;}
-  main{padding:12px; max-width:760px; margin:0 auto;}
-  .card{background:var(--card); border:1px solid var(--linea); border-radius:14px; padding:12px; margin-bottom:12px;}
-  .card h2{font-size:14px; margin:0 0 10px; color:var(--txt2); text-transform:uppercase; letter-spacing:.5px;}
+  main{padding:8px; max-width:760px; margin:0 auto;}
+  .card{background:var(--card); border:1px solid var(--linea); border-radius:12px; padding:9px; margin-bottom:8px;}
+  .card h2{font-size:13px; margin:0 0 8px; color:var(--txt2); text-transform:uppercase; letter-spacing:.5px;}
+  /* tarjetas plegables (1, 4 y 5): la vista principal son la foto y la corrección */
+  details.card summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:8px; -webkit-tap-highlight-color:transparent;}
+  details.card summary::-webkit-details-marker{display:none;}
+  details.card summary h2{margin:0; flex:1;}
+  details.card summary::after{content:'▸'; color:var(--txt2); font-size:15px; transition:transform .15s;}
+  details.card[open] summary::after{transform:rotate(90deg);}
+  details.card[open] summary{margin-bottom:10px;}
+  summary .badge{max-width:46vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
-  button{font-family:inherit; cursor:pointer; border:none; border-radius:10px; padding:11px 14px;
-    font-size:15px; font-weight:600; color:#fff; background:var(--azul2);}
+  button{font-family:inherit; cursor:pointer; border:none; border-radius:10px; padding:9px 12px;
+    font-size:14px; font-weight:600; color:#fff; background:var(--azul2);}
   button:active{transform:scale(.97);}
   button.sec{background:#2a313c; color:var(--txt);}
   button.ghost{background:transparent; color:var(--txt2); border:1px solid var(--linea);}
@@ -52,14 +60,15 @@
   .state{font-size:20px; width:30px;}
   .s-ok{color:var(--ok);} .s-mal{color:var(--mal);} .s-duda{color:var(--duda);} .s-bl{color:var(--blanco);}
   .s-blanco{color:var(--blanco);} .s-anulada{color:#b39ddb;}
-  /* Resumen */
-  #resumen{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:10px;}
-  .stat{background:#0c1016; border:1px solid var(--linea); border-radius:10px; padding:8px; text-align:center;}
-  .stat b{display:block; font-size:22px;} .stat span{font-size:11px; color:var(--txt2);}
-  .total{background:linear-gradient(135deg,#0d47a1,#1565c0); border:none; border-radius:14px; padding:14px; text-align:center;}
-  .total .pts{font-size:34px; font-weight:800;}
-  .total .nota{font-size:15px; opacity:.95; margin-top:2px;}
-  .muted{color:var(--txt2); font-size:13px; line-height:1.45;}
+  /* Resumen (compacto: que la vista principal quepa en una pantalla;
+     las filas de respuestas mantienen su tamaño táctil) */
+  #resumen{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px;}
+  .stat{background:#0c1016; border:1px solid var(--linea); border-radius:9px; padding:5px; text-align:center;}
+  .stat b{display:block; font-size:19px;} .stat span{font-size:10px; color:var(--txt2);}
+  .total{background:linear-gradient(135deg,#0d47a1,#1565c0); border:none; border-radius:12px; padding:9px; text-align:center;}
+  .total .pts{font-size:27px; font-weight:800;}
+  .total .nota{font-size:14px; opacity:.95; margin-top:1px;}
+  .muted{color:var(--txt2); font-size:12px; line-height:1.4;}
   .keyedit{display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap;}
   input[type=range]{width:100%;}
   input[type=number]{background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:8px; padding:6px 8px; font-size:14px;}
@@ -72,7 +81,10 @@
     border-radius:12px; padding:10px 12px; font-size:15px; font-weight:600;
     text-align:center; pointer-events:none; box-shadow:0 4px 14px rgba(0,0,0,.5);}
   .badge{font-size:11px; padding:2px 6px; border-radius:6px; background:#0c1016; border:1px solid var(--linea); color:var(--txt2);}
-  .examsel{flex:1; min-width:0; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:10px; padding:11px 12px; font-size:15px;}
+  .examsel{flex:1; min-width:0; background:#0c1016; color:var(--txt); border:1px solid var(--linea); border-radius:10px; padding:9px 10px; font-size:14px;}
+  /* modo manual rápido */
+  .mnopt{font-size:26px; width:70px; height:62px;}
+  #dlgManual{min-width:280px;}
   .pill{max-width:48vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .keybanner{background:#3a2f00; border:1px solid var(--duda); color:#ffe082; border-radius:10px; padding:9px 11px; font-size:13px; margin-bottom:10px; display:none;}
 </style>
@@ -84,9 +96,9 @@
 </header>
 
 <main>
-  <!-- Gestor de exámenes y soluciones -->
-  <div class="card">
-    <h2>1 · Examen</h2>
+  <!-- Gestor de exámenes y soluciones (plegado: la vista principal es corregir) -->
+  <details class="card" id="card-exam">
+    <summary><h2>1 · Examen</h2><span class="badge" id="sumExam"></span></summary>
     <div class="row">
       <select id="examSel" class="examsel"></select>
       <button id="btnNewExam">➕ Nuevo</button>
@@ -108,7 +120,7 @@
     </div>
     <div id="keyGrid"></div>
     <p class="muted" style="margin:8px 0 0">Toca una letra para fijar/editar la solución de cada pregunta. Se guarda con el examen seleccionado.</p>
-  </div>
+  </details>
 
   <!-- Captura -->
   <div class="card">
@@ -118,6 +130,7 @@
       <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none">
       <button id="btnFoto">📷 Tomar / elegir foto</button>
       <button id="btnLive" class="sec" style="display:none">🎥 En vivo (corrige sin capturar)</button>
+      <button id="btnManual" class="sec">⚡ Modo manual</button>
       <button id="btnSinFoto" class="ghost">Corregir sin foto</button>
     </div>
 
@@ -154,6 +167,10 @@
   <!-- Resultados -->
   <div class="card" id="card-result">
     <h2>3 · Corrección</h2>
+    <div class="row" style="margin-bottom:8px">
+      <label class="small" style="white-space:nowrap">Modelo:</label>
+      <select id="examSel2" class="examsel"></select>
+    </div>
     <div id="resumen">
       <div class="stat"><b id="nAc" class="s-ok">0</b><span>Aciertos</span></div>
       <div class="stat"><b id="nFa" class="s-mal">0</b><span>Fallos</span></div>
@@ -179,9 +196,9 @@
     </p>
   </div>
 
-  <!-- Calibración -->
-  <div class="card" id="card-cal">
-    <h2>4 · Calibración (detección automática)</h2>
+  <!-- Calibración (plegada: de fábrica ya viene hecha) -->
+  <details class="card" id="card-cal">
+    <summary><h2>4 · Calibración y modelo (automáticos)</h2></summary>
     <p class="muted" id="calStatus">Sin calibrar para este examen.</p>
     <div class="row" style="margin-top:8px">
       <button id="btnCal" class="sec">🎯 Calibrar este examen</button>
@@ -211,11 +228,11 @@
       <b>parche de esa zona por modelo</b> y al cargar cada foto compara cuál casa mejor →
       <b>elige sola el modelo correcto</b>. Si eligiera mal, cambia el examen a mano en el apartado 1.
     </p>
-  </div>
+  </details>
 
-  <!-- Aprendizaje -->
-  <div class="card">
-    <h2>5 · Aprendizaje del modelo</h2>
+  <!-- Aprendizaje (plegado) -->
+  <details class="card" id="card-learn">
+    <summary><h2>5 · Aprendizaje del modelo</h2></summary>
     <p class="muted" id="modelInfo">Modelo: (no cargado)</p>
     <div class="row">
       <button id="btnLoadModel" class="sec">🔄 Actualizar modelo</button>
@@ -240,10 +257,10 @@
       <p class="muted" id="ghStatus" style="margin:6px 0 0; font-size:12px"></p>
       <p class="muted" style="margin:6px 0 0; font-size:12px">Con el token puesto, la app sube sola las muestras nuevas al terminar cada corrección. Sin token: usa «Exportar JSONL» y sube el archivo a <b>samples/</b> del repo de datos; GitHub reentrena y la app descarga el modelo.</p>
     </div>
-  </div>
+  </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, enderezado seguro y detección de modelo · v3.4
+    Corrector tipo test · cámara en vivo con zoom automático, vista simplificada y enderezado a prueba de fallos · v3.5
   </p>
 </main>
 
@@ -259,6 +276,12 @@
     <button class="ghost dlgopt" data-v="doubt" style="color:var(--duda)">Duda (?)</button>
   </div>
   <button class="ghost wide" style="margin-top:10px" onclick="document.getElementById('dlgRow').close()">Cerrar</button>
+</dialog>
+
+<!-- Modo manual rápido: modelo → pregunta a pregunta → resultado -->
+<dialog id="dlgManual">
+  <h3 id="mnTitle" style="margin:0 0 10px; text-align:center">Corrección manual</h3>
+  <div id="mnBody"></div>
 </dialog>
 
 <!-- Diálogo de configuración de la detección de modelo A/B -->
@@ -562,6 +585,91 @@ $('#fileInput').onchange = e=>{
 };
 $('#btnFoto').onclick = ()=> $('#fileInput').click();
 $('#btnSinFoto').onclick = ()=>{ $('#stage').classList.remove('show'); imgReady=false; renderResults(); };
+
+/* ============================================================
+   MODO MANUAL RÁPIDO: primero el modelo, luego pregunta a
+   pregunta (a/b/c/blanco) con marcador en vivo de ✔/✘.
+   En ordenador: teclas 1=a, 2=b, 3=c, 0=blanco, ←=atrás.
+   ============================================================ */
+let mnIdx=-1;
+function manualAnswer(v){
+  answers[mnIdx]= v==='null' ? null : v;
+  mnIdx++; renderResults(); renderManual();
+}
+function renderManual(){
+  const b=$('#mnBody'), t=$('#mnTitle');
+  if(mnIdx<0){
+    t.textContent='¿Qué modelo es?';
+    b.innerHTML='';
+    DB.order.forEach(id=>{
+      const btn=document.createElement('button');
+      btn.className='wide'; btn.style.marginTop='8px';
+      btn.textContent=DB.exams[id].name;
+      btn.onclick=()=>{ if(id!==DB.curId) softSwitchExam(id); mnIdx=0; renderManual(); };
+      b.appendChild(btn);
+    });
+    const c=document.createElement('button');
+    c.className='ghost wide'; c.style.marginTop='10px'; c.textContent='Cancelar';
+    c.onclick=()=>$('#dlgManual').close();
+    b.appendChild(c);
+    return;
+  }
+  if(mnIdx>=NQ){
+    // resultado final dentro del propio diálogo (rápido de ver)
+    const g=grade();
+    t.textContent='Resultado';
+    b.innerHTML=
+      '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px">'+
+        '<div class="stat"><b class="s-ok">'+g.ac+'</b><span>Aciertos</span></div>'+
+        '<div class="stat"><b class="s-mal">'+g.fa+'</b><span>Fallos</span></div>'+
+        '<div class="stat"><b class="s-duda">'+g.du+'</b><span>Dudas</span></div>'+
+        '<div class="stat"><b class="s-bl">'+g.bl+'</b><span>Blanco</span></div>'+
+      '</div>'+
+      '<div class="total"><div class="pts">'+fmt(g.pts)+' / '+fmt(g.mx)+'</div>'+
+      '<div class="nota">Nota: '+fmt(g.nota)+' / 10 · '+literal(g.nota)+'</div></div>'+
+      '<button class="wide" id="mnNext" style="margin-top:10px">⚡ Siguiente alumno</button>'+
+      '<button class="ghost wide" id="mnDone" style="margin-top:8px">Cerrar y revisar</button>';
+    $('#mnNext').onclick=()=>{ resetExamState(); mnIdx=0; renderManual(); };
+    $('#mnDone').onclick=()=>{ $('#dlgManual').close(); renderResults();
+      document.querySelector('#card-result').scrollIntoView({behavior:'smooth'}); };
+    return;
+  }
+  const g=grade();
+  t.textContent='Pregunta '+(mnIdx+1)+' de '+NQ;
+  b.innerHTML=
+    '<div class="row" style="justify-content:center; gap:10px; margin:4px 0 10px">'+
+      ['a','b','c'].map(o=>'<button class="mnopt" data-v="'+o+'">'+o+'</button>').join('')+
+    '</div>'+
+    '<div class="row" style="justify-content:center; gap:10px">'+
+      '<button class="ghost mnoptx" data-v="null">En blanco (0)</button>'+
+      '<button class="ghost mnoptx" data-v="doubt" style="color:var(--duda)">Duda</button>'+
+    '</div>'+
+    '<div class="row" style="justify-content:space-between; margin-top:12px; align-items:center">'+
+      '<button class="ghost" id="mnBack">↩</button>'+
+      '<span class="muted">✔ '+g.ac+' · ✘ '+g.fa+'</span>'+
+      '<button class="ghost" id="mnClose">✕</button>'+
+    '</div>'+
+    '<p class="muted" style="margin:8px 0 0; font-size:11px; text-align:center">Teclado: 1=a · 2=b · 3=c · 0=blanco · ←=atrás</p>';
+  b.querySelectorAll('.mnopt,.mnoptx').forEach(btn=> btn.onclick=()=>manualAnswer(btn.dataset.v));
+  $('#mnBack').onclick=()=>{ if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual(); };
+  $('#mnClose').onclick=()=>{ $('#dlgManual').close(); renderResults(); };
+}
+$('#btnManual').onclick = ()=>{
+  stopLiveMode();
+  resetExamState();
+  mnIdx=-1; renderManual();
+  $('#dlgManual').showModal();
+};
+// teclado (ordenador): 1/2/3 = a/b/c · 0 = blanco · Backspace/← = atrás
+document.addEventListener('keydown', ev=>{
+  const d=$('#dlgManual');
+  if(!d.open || mnIdx<0 || mnIdx>=NQ) return;
+  const map={'1':'a','2':'b','3':'c','0':'null'};
+  if(map[ev.key]!==undefined){ ev.preventDefault(); manualAnswer(map[ev.key]); }
+  else if(ev.key==='Backspace'||ev.key==='ArrowLeft'){
+    ev.preventDefault(); if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual();
+  }
+});
 
 /* ============================================================
    CÁMARA EN VIVO con corrección superpuesta (sin capturar):
@@ -968,8 +1076,10 @@ function grayOf(source, w, h){
   for(let i=0;i<w*h;i++) g[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
   return {g, w, h};
 }
-// Fuente de imagen actual: la foto, o el fotograma de la cámara en vivo
-function srcEl(){ return (liveMode && liveFrame) ? liveFrame : img; }
+// Fuente de imagen actual: la foto, el fotograma de la cámara en vivo, o una
+// imagen alternativa temporal (p. ej. la versión enderezada en evaluación)
+let srcOverride=null;
+function srcEl(){ return srcOverride || ((liveMode && liveFrame) ? liveFrame : img); }
 function srcW(){ const s=srcEl(); return s.naturalWidth||s.width; }
 function srcH(){ const s=srcEl(); return s.naturalHeight||s.height; }
 // Fuente actual reducida a maxDim (lado mayor); .scale = factor respecto al original
@@ -1274,7 +1384,7 @@ async function autoAnchors(page, exam, lite){
   return best;
 }
 function autoOn(){ return LS.getItem('autoDetect')!=='0'; }
-let autoBusy=false, autoForce=false;
+let autoBusy=false, autoForce=false, applyPending=null;
 /* Al cargar una foto: endereza, localiza referencias, decide el modelo (A/B)
    y detecta. (autoForce sobrevive a la recarga interna tras el enderezado.) */
 async function maybeAutoProcess(force){
@@ -1288,39 +1398,74 @@ async function maybeAutoProcess(force){
     return;
   }
   autoBusy=true;
-  // 1) endereza la foto (folio detectado y puesto recto); si no se puede,
-  //    sigue con la original (la rejilla de escalas amplia la cubre)
+  // continuación tras adoptar la foto enderezada (resultados ya calculados)
+  if(applyPending){
+    const ap=applyPending; applyPending=null;
+    await applyAnchorsAndDetect(ap);
+    autoBusy=false; autoForce=false;
+    return;
+  }
+  // 1) genera la versión enderezada (si se detecta el folio), pero SIN
+  //    sustituir la original: se analizan AMBAS y gana la de más confianza.
+  //    Así un enderezado malo no puede estropear nada.
+  let rectURL=null;
   if(!photoRectified){
+    photoRectified=true;
     setHint('📐 Enderezando la foto…');
     await new Promise(r=>setTimeout(r,30));
-    let ru=null;
-    try{ ru=await rectifyPage(); }catch(e){ console.warn('rectify:', e); }
-    photoRectified=true;
-    if(ru){
-      rectOriginal=photos[curPage];                 // por si el enderezado sale mal
-      isRectified=true;
-      autoBusy=false; setPhoto(ru, true); return;   // recarga y re-entra ya recta
-    }
+    try{ rectURL=await rectifyPage(); }catch(e){ console.warn('rectify:', e); }
   }
   setHint('🤖 Buscando referencias automáticamente…');
   await new Promise(r=>setTimeout(r,40));               // deja pintar el aviso
-  // si YA se corrigió una página de ESTE examen, el modelo queda BLOQUEADO:
-  // la otra página es del mismo alumno (no se vuelve a decidir el modelo)
+  let chosen=null, chosenIsRect=false;
+  if(rectURL){
+    let tR=null;
+    try{
+      srcOverride=await loadImage(rectURL); isRectified=true;
+      tR=await anchorTrials();
+    }catch(e){ console.warn('trials rect:', e); }
+    srcOverride=null; isRectified=false;
+    if(tR && tR.res && tR.res.conf>=0.6){
+      chosen=tR; chosenIsRect=true;                     // enderezada claramente buena
+    } else {
+      const tO=await anchorTrials();                    // compara con la ORIGINAL
+      if(tR && tR.res && tR.res.conf>=0.45 && (!tO.res || tR.res.conf>tO.res.conf)){
+        chosen=tR; chosenIsRect=true;
+      } else chosen=tO;
+    }
+  } else {
+    chosen=await anchorTrials();
+  }
+  autoBusy=false;
+  if(!chosen || !chosen.res || chosen.res.conf<0.45){
+    autoForce=false;
+    setHint('🤖 No localizo las referencias con seguridad. Pulsa «📍 Marcar referencias» y colócalas tú.');
+    return;
+  }
+  if(chosenIsRect){
+    // adopta la enderezada SOLO ahora que ha demostrado ser la mejor
+    isRectified=true;
+    applyPending=chosen;
+    setPhoto(rectURL, true);   // al cargar, re-entra y aplica los resultados
+    return;
+  }
+  autoForce=false;
+  await applyAnchorsAndDetect(chosen);
+}
+/* Intentos de anclaje sobre la fuente actual: examen actual → otro modelo →
+   otra página → otra página con el otro modelo. El modelo queda BLOQUEADO si
+   ya se corrigió una página de este examen (la otra es del mismo alumno). */
+async function anchorTrials(){
   const lockModel = pagesDetected.size>0;
   const otherExam = (!lockModel && DB.modelMark)
     ? (DB.curId===DB.modelMark.underId ? DB.modelMark.plainId : DB.modelMark.underId) : null;
   let res=null, srcId=DB.curId, pageUsed=curPage;
   try{ res=await autoAnchors(curPage); }catch(e){ console.warn('autoAnchors:', e); }
-  // si no convence, prueba con la calibración del OTRO modelo (los textos de
-  // las opciones cambian entre modelos y los parches del modelo correcto
-  // casan mejor): esto ya es media detección de modelo
   if((!res || res.conf<0.45) && otherExam && DB.exams[otherExam]){
     let r2=null;
     try{ r2=await autoAnchors(curPage, DB.exams[otherExam], true); }catch(e){}
     if(r2 && (!res || r2.conf>res.conf)){ res=r2; srcId=otherExam; }
   }
-  // ¿y si la foto es de la OTRA página? (el profe no tiene que acordarse de
-  // cambiar el selector de página: se reconoce por el contenido)
   if((!res || res.conf<0.45) && EX().pageMode===2){
     const op=curPage===1?2:1;
     let r3=null;
@@ -1332,37 +1477,26 @@ async function maybeAutoProcess(force){
       if(r4 && (!res || r4.conf>res.conf)){ res=r4; srcId=otherExam; pageUsed=op; }
     }
   }
-  autoBusy=false;
-  if(!res || res.conf<0.45){
-    if(rectOriginal){
-      // el enderezado distorsionó la foto: vuelve a la ORIGINAL y reintenta
-      const orig=rectOriginal; rectOriginal=null; isRectified=false;
-      setHint('📐 El enderezado no ayudó: reintento con la foto original…');
-      setPhoto(orig, true);                         // keepRect → no vuelve a enderezar
-      return;
-    }
-    autoForce=false;
-    setHint('🤖 No localizo las referencias con seguridad. Pulsa «📍 Marcar referencias» y colócalas tú.');
-    return;
-  }
-  autoForce=false;
-  rectOriginal=null;                                // éxito: ya no hace falta volver
-  if(srcId!==DB.curId && !keyMode) softSwitchExam(srcId);
-  if(pageUsed!==curPage){
+  return {res, srcId, pageUsed, lockModel};
+}
+/* Aplica un resultado de anclaje: cambio de examen/página, puntos de apoyo,
+   decisión de modelo (si procede) y detección. */
+async function applyAnchorsAndDetect(t){
+  let res=t.res;
+  if(t.srcId!==DB.curId && !keyMode) softSwitchExam(t.srcId);
+  if(t.pageUsed!==curPage){
     // la foto era de la otra página: muévela allí y cambia el selector
-    photos[pageUsed]=photos[curPage]; photos[curPage]=null; anchorsByPage[curPage]=null;
-    curPage=pageUsed; syncPageSeg(); refreshCalStatus();
-    setHint('📄 La foto es de la página '+pageUsed+': la coloco en su sitio.');
+    photos[t.pageUsed]=photos[curPage]; photos[curPage]=null; anchorsByPage[curPage]=null;
+    curPage=t.pageUsed; syncPageSeg(); refreshCalStatus();
+    setHint('📄 La foto es de la página '+t.pageUsed+': la coloco en su sitio.');
     await new Promise(r=>setTimeout(r,500));
   }
   anchors=res.anchors; anchorsByPage[curPage]=anchors;
   // puntos de apoyo (anclas + testigos) → mapeo por tramos de esta página
-  pageKnots[curPage] = (res.fit && res.fit.length>=3) ? {examId:srcId, knots:res.fit} : null;
-  let extra='';
-  if(DB.modelMark && !keyMode && !lockModel && curPage===(DB.modelMark.page||1)){
+  pageKnots[curPage] = (res.fit && res.fit.length>=3) ? {examId:DB.curId, knots:res.fit} : null;
+  if(DB.modelMark && !keyMode && !t.lockModel && curPage===(DB.modelMark.page||1)){
     // decisión de modelo (parche de zona por modelo; subrayado de respaldo);
-    // si no hay decisión fiable se queda la elección por parches de anclas
-    // (srcId). Las anclas no cambian: ambos modelos comparten maquetación.
+    // si no hay decisión fiable se queda la elección por parches de anclas.
     let dec=null;
     try{ dec=await decideModel(); }catch(e){ console.warn('decideModel:', e); }
     if(dec && DB.exams[dec.targetId] && dec.targetId!==DB.curId){
@@ -1376,7 +1510,7 @@ async function maybeAutoProcess(force){
       } else pageKnots[curPage]=null;
     }
   }
-  extra=DB.modelMark && !keyMode ? ' · 📋 '+EX().name : '';
+  const extra=DB.modelMark && !keyMode ? ' · 📋 '+EX().name : '';
   setHint('🤖 Referencias OK (confianza '+Math.round(res.conf*100)+'%)'+extra);
   drawOverlay();
   setTimeout(()=>detect(curPage), 350);
@@ -1837,15 +1971,22 @@ document.querySelectorAll('#pageSeg button').forEach(b=> b.onclick=()=>setCurPag
 
 /* ---------- Gestor de exámenes ---------- */
 function syncExamSel(){
-  const sel=$('#examSel'); sel.innerHTML='';
-  DB.order.forEach(id=>{ const o=document.createElement('option'); o.value=id; o.textContent=DB.exams[id].name; if(id===DB.curId)o.selected=true; sel.appendChild(o); });
+  for(const sid of ['#examSel','#examSel2']){
+    const sel=$(sid); if(!sel) continue;
+    sel.innerHTML='';
+    DB.order.forEach(id=>{ const o=document.createElement('option'); o.value=id; o.textContent=DB.exams[id].name; if(id===DB.curId)o.selected=true; sel.appendChild(o); });
+  }
+  const se=$('#sumExam'); if(se) se.textContent=EX().name;   // resumen de la tarjeta plegada
 }
-$('#examSel').onchange = e=>{
+function examSelChange(id){
   // si ya hay un examen a medio corregir, cambiar de modelo NO borra el
   // trabajo (solo cambia las soluciones); si no, cambio completo
-  if(pagesDetected.size>0 || Object.keys(photos).some(p=>photos[p])) softSwitchExam(e.target.value);
-  else setExam(e.target.value);
-};
+  if(pagesDetected.size>0 || Object.keys(photos).some(p=>photos[p]) ||
+     answers.some(a=>a!==null)) softSwitchExam(id);
+  else setExam(id);
+}
+$('#examSel').onchange = e=> examSelChange(e.target.value);
+$('#examSel2').onchange = e=> examSelChange(e.target.value);
 
 /* Puntuación configurable por examen (el profesor define cuánto resta un fallo) */
 $('#cfgOk').onchange = ()=>{ const v=parseFloat($('#cfgOk').value); if(!isNaN(v)&&v>=0){ EX().pointsOk=v; saveDB(); renderResults(); } };
@@ -2039,7 +2180,7 @@ $('#btnNewExam').onclick = ()=>{
   setExam(ex.id);
   if(confirm('Examen «'+ex.name+'» creado.\n\nDefine ahora sus soluciones:\n• Aceptar → te explico cómo hacerlo con una foto del examen corregido.\n• Cancelar → las pondré a mano tocando las letras del apartado 1.')){
     alert('Para leer las soluciones de una foto:\n1) Calibra este examen (apartado 4) sobre una foto bien encuadrada.\n2) Pulsa «📷 Definir soluciones desde un examen corregido» (apartado 1).');
-    $('#card-cal').scrollIntoView({behavior:'smooth'});
+    $('#card-cal').open=true; $('#card-cal').scrollIntoView({behavior:'smooth'});
   }
 };
 $('#btnRenameExam').onclick = ()=>{
@@ -2058,7 +2199,7 @@ $('#btnDelExam').onclick = ()=>{
 $('#btnKeyFromPhoto').onclick = ()=>{
   if(!pageCal(curPage)){
     alert('Para leer las soluciones de una foto, primero calibra este examen (apartado 4)'+(EX().pageMode===2?' en cada página':'')+'.\n\nO defínelas a mano tocando las letras de abajo.');
-    $('#card-cal').scrollIntoView({behavior:'smooth'}); return;
+    $('#card-cal').open=true; $('#card-cal').scrollIntoView({behavior:'smooth'}); return;
   }
   keyMode=true; $('#keyBanner').style.display='block';
   alert('Modo «definir soluciones» activado.\n\n1) En el apartado 2, haz la foto del examen CORREGIDO'+(EX().pageMode===2?' (página '+curPage+')':'')+'.\n2) Pulsa «📍 Marcar referencias» y «✨ Detectar».\n\nLo detectado se guardará como SOLUCIONES (luego puedes revisarlas).');
