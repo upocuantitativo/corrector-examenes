@@ -268,7 +268,7 @@
   </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, auto-captura en vivo y pregunta de modelo · v3.6
+    Corrector tipo test · cámara en vivo con zoom automático, auto-captura en vivo y pregunta de modelo · v3.7
   </p>
 </main>
 
@@ -646,17 +646,23 @@ function renderManual(){
       '</div>'+
       '<div class="total"><div class="pts">'+fmt(g.pts)+' / '+fmt(g.mx)+'</div>'+
       '<div class="nota">Nota: '+fmt(g.nota)+' / 10 · '+literal(g.nota)+'</div></div>'+
-      // tira ✔/✘ por pregunta, para copiarla en el examen en papel
-      '<div style="display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:10px">'+
-        Array.from({length:NQ},(_,i)=>{
-          const c=classify(i);
-          const IC={ok:'✔',mal:'✘',duda:'?',blanco:'·',anulada:'∅'}[c];
-          const CO={ok:'var(--ok)',mal:'var(--mal)',duda:'var(--duda)',blanco:'var(--blanco)',anulada:'#b39ddb'}[c];
-          return '<div style="text-align:center; min-width:27px; background:#0c1016; border:1px solid var(--linea); border-radius:7px; padding:2px 1px">'+
-            '<div class="muted" style="font-size:10px">'+(i+1)+'</div>'+
-            '<div style="font-size:19px; font-weight:800; line-height:1.1; color:'+CO+'">'+IC+'</div></div>';
-        }).join('')+
-      '</div>'+
+      // tira ✔/✘ por pregunta, para copiarla en el examen en papel:
+      // una FILA por página (preg. 1-4 arriba, 5-10 debajo)
+      (EX().pageMode===2 ? [pageQuestions(1), pageQuestions(2)]
+                         : [Array.from({length:NQ},(_,i)=>i)])
+        .map((qs2,ri)=>
+          '<div style="display:flex; gap:3px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:'+(ri?4:10)+'px">'+
+          (EX().pageMode===2 ? '<span class="muted" style="font-size:10px; min-width:32px">Pág. '+(ri+1)+'</span>' : '')+
+          qs2.map(i=>{
+            const c=classify(i);
+            const IC={ok:'✔',mal:'✘',duda:'?',blanco:'·',anulada:'∅'}[c];
+            const CO={ok:'var(--ok)',mal:'var(--mal)',duda:'var(--duda)',blanco:'var(--blanco)',anulada:'#b39ddb'}[c];
+            return '<div style="text-align:center; min-width:27px; background:#0c1016; border:1px solid var(--linea); border-radius:7px; padding:2px 1px">'+
+              '<div class="muted" style="font-size:10px">'+(i+1)+'</div>'+
+              '<div style="font-size:19px; font-weight:800; line-height:1.1; color:'+CO+'">'+IC+'</div></div>';
+          }).join('')+
+          '</div>'
+        ).join('')+
       '<button class="wide" id="mnNext" style="margin-top:10px">⚡ Siguiente alumno (Enter)</button>'+
       '<button class="ghost wide" id="mnDone" style="margin-top:8px">Cerrar y revisar</button>';
     $('#mnNext').onclick=()=>{ resetExamState(); mnIdx=-1; renderManual(); };  // cada alumno: su modelo
