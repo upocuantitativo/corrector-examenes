@@ -243,7 +243,7 @@
   </div>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo, enderezado seguro y detección de modelo · v3.2
+    Corrector tipo test · cámara en vivo con zoom automático, enderezado seguro y detección de modelo · v3.3
   </p>
 </main>
 
@@ -698,6 +698,15 @@ $('#btnLive').onclick = async ()=>{
   try{
     liveStream = await navigator.mediaDevices.getUserMedia(
       {video:{facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}}, audio:false});
+    // zoom OUT al mínimo que permita el móvil (0,5× = ultra gran angular en
+    // muchos Android): así cabe el folio entero sin alejar el brazo
+    try{
+      const track=liveStream.getVideoTracks()[0];
+      const caps=track.getCapabilities ? track.getCapabilities() : {};
+      if(caps.zoom && typeof caps.zoom.min==='number'){
+        await track.applyConstraints({advanced:[{zoom: caps.zoom.min}]});
+      }
+    }catch(e){ console.warn('zoom no soportado:', e); }
     const v=$('#video'); v.srcObject=liveStream; await v.play();
     v.style.display='block'; img.style.display='none'; showStage(); $('#btnShot').style.display='inline-block';
     liveMode=true; liveLockedPage=0; imgReady=false;

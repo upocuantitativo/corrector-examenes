@@ -1,6 +1,6 @@
 /* Service worker: red primero para el HTML (así siempre llega la última versión
    cuando hay internet) y caché de respaldo para uso sin conexión. */
-const CACHE = 'corrector-v9';
+const CACHE = 'corrector-v10';
 const ASSETS = ['./', 'index.html', 'factory.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
