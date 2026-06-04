@@ -268,7 +268,7 @@
   </details>
 
   <p class="muted" style="text-align:center; margin:18px 0">
-    Corrector tipo test · cámara en vivo con zoom automático, corrección por voz, auto-captura en vivo y pregunta de modelo · v3.8
+    Corrector tipo test · cámara en vivo con zoom automático, corrección por voz silenciosa y auto-captura en vivo · v3.9
   </p>
 </main>
 
@@ -671,8 +671,12 @@ function renderManual(){
     $('#mnNext').onclick=()=>{ resetExamState(); mnIdx=-1; renderManual(); };  // cada alumno: su modelo
     $('#mnDone').onclick=()=>{ $('#dlgManual').close(); renderResults();
       document.querySelector('#card-result').scrollIntoView({behavior:'smooth'}); };
-    // con la voz activa, DICE el resultado en alto
-    if(voiceOn) speakText(g.ac+' aciertos, '+g.fa+' fallos. Nota: '+fmt(g.nota)+'. Di «siguiente» para otro alumno.');
+    if(voiceOn){
+      const p=document.createElement('p');
+      p.className='muted'; p.style.cssText='margin:8px 0 0; font-size:11px; text-align:center';
+      p.textContent='🎤 di el MODELO del siguiente alumno (uno / dos) para encadenar';
+      b.appendChild(p);
+    }
     return;
   }
   const g=grade();
@@ -729,60 +733,54 @@ document.addEventListener('keydown', ev=>{
 });
 
 /* ---------- Corrección por VOZ (Web Speech API · Chrome/Android) ----------
-   Con el 🎤 activo, el profesor dice el modelo («uno» / «dos») y después las
-   respuestas seguidas: «a», «be», «ce» o «no» (en blanco). También valen
-   «uno/dos/tres/cero», «duda», «atrás» y «siguiente» (otro alumno). Al
-   terminar, la app DICE el resultado en voz alta. */
-let recog=null, voiceOn=false, speaking=false;
+   SILENCIOSA: la app solo ESCUCHA, no dice nada. El profesor dicta seguido:
+   el número del modelo («uno»/«dos») y las respuestas «a», «be», «ce» o
+   «no» (en blanco). En la pantalla de resultado, decir el modelo del
+   SIGUIENTE alumno encadena directamente: «1, a, ce, no… 2, be, a…» */
+let recog=null, voiceOn=false;
 function updateVoiceBtn(){
   const b=$('#mnVoice'); if(!b) return;
   b.style.background = voiceOn ? 'var(--ok)' : 'transparent';
   b.style.color = voiceOn ? '#fff' : 'var(--txt2)';
   b.textContent = voiceOn ? '🎤 escuchando' : '🎤';
 }
-function speakText(t){
-  if(!window.speechSynthesis) return;
-  // pausa el micro mientras habla, para no oírse a sí misma
-  speaking=true; try{ recog && recog.stop(); }catch(e){}
-  const done=()=>{
-    if(!speaking) return;
-    speaking=false;
-    if(voiceOn){ try{ recog && recog.start(); }catch(e){} }
-  };
-  const u=new SpeechSynthesisUtterance(t);
-  u.lang='es-ES';
-  u.onend=done; u.onerror=done;
-  setTimeout(done, 7000);                        // vigilante: nunca quedarse mudo-sordo
-  try{ speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){ done(); }
+function voiceModel(w){
+  const n={'uno':1,'1':1,'dos':2,'2':2,'tres':3,'3':3,'cuatro':4,'4':4}[w];
+  if(!n || !DB.order[n-1]) return false;
+  const id=DB.order[n-1];
+  if(id!==DB.curId) softSwitchExam(id);
+  mnIdx=0; renderManual();
+  return true;
 }
 function handleVoice(txt){
   if(!$('#dlgManual').open) return;
   const words=txt.toLowerCase().split(/[\s,.;:!?]+/).filter(Boolean);
   for(const w of words){
     if(!$('#dlgManual').open) break;
-    if(mnIdx<0){
+    if(mnIdx<0){                                  // esperando el modelo
       if(w==='modelo'||w==='el') continue;
-      const n={'uno':1,'1':1,'dos':2,'2':2,'tres':3,'3':3,'cuatro':4,'4':4}[w];
-      if(n && DB.order[n-1]){
-        const id=DB.order[n-1];
-        if(id!==DB.curId) softSwitchExam(id);
-        mnIdx=0; renderManual();
-        speakText('Modelo elegido. Pregunta uno.');
-      }
+      voiceModel(w);
       continue;
     }
-    if(mnIdx>=NQ){
-      if(w==='siguiente'||w==='otro'){ resetExamState(); mnIdx=-1; renderManual(); speakText('Di el modelo.'); }
+    if(mnIdx>=NQ){                                // resultado: el modelo del
+      if(w==='modelo'||w==='el') continue;        // siguiente alumno encadena
+      const prev=mnIdx;
+      if(voiceModel(w)){ /* nuevo alumno */ }
+      if(mnIdx===0 && prev>=NQ) resetOnVoiceChain();
       continue;
     }
-    if(w==='atrás'||w==='atras'){ if(mnIdx>0) mnIdx--; else mnIdx=-1; renderManual(); continue; }
-    const v={'a':'a','ha':'a','uno':'a','1':'a',
-             'be':'b','b':'b','ve':'b','uve':'b','dos':'b','2':'b',
-             'ce':'c','c':'c','se':'c','sé':'c','tres':'c','3':'c',
-             'no':'null','blanco':'null','nada':'null','cero':'null','0':'null',
-             'duda':'doubt'}[w];
+    const v={'a':'a','ha':'a',
+             'be':'b','b':'b','ve':'b','uve':'b',
+             'ce':'c','c':'c','se':'c','sé':'c',
+             'no':'null','blanco':'null'}[w];
     if(v!==undefined) manualAnswer(v);
   }
+}
+function resetOnVoiceChain(){
+  // limpia las respuestas del alumno anterior SIN tocar el modelo recién elegido
+  answers=newAnswers();
+  lastScores={}; pagesDetected=new Set(); reviewQueue=[]; reviewIdx=0;
+  renderResults(); renderManual();
 }
 function startVoice(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -793,19 +791,15 @@ function startVoice(){
     for(let i=ev.resultIndex;i<ev.results.length;i++)
       if(ev.results[i].isFinal) handleVoice(ev.results[i][0].transcript);
   };
-  recog.onend=()=>{ if(voiceOn && !speaking){ try{ recog.start(); }catch(e){} } };  // Chrome corta solo
+  recog.onend=()=>{ if(voiceOn){ try{ recog.start(); }catch(e){} } };  // Chrome corta solo
   recog.onerror=e=>{
     if(e.error==='not-allowed'){ voiceOn=false; updateVoiceBtn(); alert('Permiso de micrófono denegado.'); }
   };
-  try{
-    recog.start(); voiceOn=true; updateVoiceBtn();
-    speakText(mnIdx<0 ? 'Di el modelo: uno o dos.' : 'Di las respuestas: a, be, ce o no.');
-  }catch(e){}
+  try{ recog.start(); voiceOn=true; updateVoiceBtn(); }catch(e){}
 }
 function stopVoice(){
-  voiceOn=false; speaking=false;
+  voiceOn=false;
   try{ recog && recog.stop(); }catch(e){}
-  try{ window.speechSynthesis && speechSynthesis.cancel(); }catch(e){}
   updateVoiceBtn();
 }
 $('#mnVoice').onclick=()=>{ voiceOn ? stopVoice() : startVoice(); };
